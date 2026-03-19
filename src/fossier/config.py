@@ -19,14 +19,18 @@ _CONFIG_PATHS = [
 
 # Default signal weights (must sum to ~1.0)
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "account_age": 0.15,
-    "public_repos": 0.10,
-    "contribution_history": 0.10,
-    "open_prs_elsewhere": 0.15,
-    "prior_interaction": 0.15,
-    "pr_content": 0.15,
-    "follower_ratio": 0.10,
-    "bot_signals": 0.10,
+    "account_age": 0.12,
+    "public_repos": 0.08,
+    "contribution_history": 0.08,
+    "open_prs_elsewhere": 0.12,
+    "prior_interaction": 0.12,
+    "pr_content": 0.12,
+    "follower_ratio": 0.08,
+    "bot_signals": 0.08,
+    "commit_email": 0.05,
+    "pr_description": 0.05,
+    "repo_stars": 0.05,
+    "org_membership": 0.05,
 }
 
 
@@ -73,6 +77,7 @@ class Config:
 
     trusted_users: set[str] = field(default_factory=set)
     blocked_users: set[str] = field(default_factory=set)
+    bot_policy: str = "score"  # "score" (default), "allow", or "block"
 
     verbose: bool = False
     dry_run: bool = False
@@ -180,6 +185,8 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.trusted_users = {u.lower() for u in trust["trusted_users"]}
         if "blocked_users" in trust:
             config.blocked_users = {u.lower() for u in trust["blocked_users"]}
+        if "bot_policy" in trust:
+            config.bot_policy = str(trust["bot_policy"])
 
 
 def _apply_env(config: Config) -> None:
