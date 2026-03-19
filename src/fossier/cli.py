@@ -55,52 +55,56 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    # Common flags inherited by all subcommands
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable debug logging"
+    )
+    common.add_argument(
+        "--format", "-f", choices=["text", "json", "table"], default="text"
+    )
+    common.add_argument("--dry-run", action="store_true", help="Don't execute actions")
+    common.add_argument("--repo", "-r", help="Repository as owner/repo")
+    common.add_argument("--db-path", help="Path to database file")
+
     parser = argparse.ArgumentParser(
         prog="fossier",
         description="GitHub spam prevention for open source repositories",
+        parents=[common],
     )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable debug logging"
-    )
-    parser.add_argument(
-        "--format", "-f", choices=["text", "json", "table"], default="text"
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Don't execute actions")
-    parser.add_argument("--repo", "-r", help="Repository as owner/repo")
-    parser.add_argument("--db-path", help="Path to database file")
 
     sub = parser.add_subparsers(title="commands")
 
     # check
-    p_check = sub.add_parser("check", help="Full evaluation pipeline")
+    p_check = sub.add_parser("check", parents=[common], help="Full evaluation pipeline")
     p_check.add_argument("username", help="GitHub username to evaluate")
     p_check.add_argument("--pr", type=int, help="PR number for content analysis")
     p_check.set_defaults(func=_cmd_check)
 
     # score
-    p_score = sub.add_parser("score", help="Scoring only (debug)")
+    p_score = sub.add_parser("score", parents=[common], help="Scoring only (debug)")
     p_score.add_argument("username", help="GitHub username to score")
     p_score.add_argument("--pr", type=int, help="PR number for content analysis")
     p_score.set_defaults(func=_cmd_score)
 
     # tier
-    p_tier = sub.add_parser("tier", help="Tier resolution only")
+    p_tier = sub.add_parser("tier", parents=[common], help="Tier resolution only")
     p_tier.add_argument("username", help="GitHub username to check")
     p_tier.set_defaults(func=_cmd_tier)
 
     # history
-    p_history = sub.add_parser("history", help="Score/decision history from DB")
+    p_history = sub.add_parser("history", parents=[common], help="Score/decision history from DB")
     p_history.add_argument("username", help="GitHub username")
     p_history.set_defaults(func=_cmd_history)
 
     # vouch
-    p_vouch = sub.add_parser("vouch", help="Add user to VOUCHED.td")
+    p_vouch = sub.add_parser("vouch", parents=[common], help="Add user to VOUCHED.td")
     p_vouch.add_argument("username", help="GitHub username to vouch for")
     p_vouch.add_argument("--reason", "-m", default="", help="Reason for vouching")
     p_vouch.set_defaults(func=_cmd_vouch)
 
     # denounce
-    p_denounce = sub.add_parser("denounce", help="Denounce user in VOUCHED.td")
+    p_denounce = sub.add_parser("denounce", parents=[common], help="Denounce user in VOUCHED.td")
     p_denounce.add_argument("username", help="GitHub username to denounce")
     p_denounce.add_argument(
         "--reason", "-m", required=True, help="Reason for denouncement"
@@ -108,13 +112,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_denounce.set_defaults(func=_cmd_denounce)
 
     # db subcommands
-    p_db = sub.add_parser("db", help="Database operations")
+    p_db = sub.add_parser("db", parents=[common], help="Database operations")
     db_sub = p_db.add_subparsers(title="db commands")
 
-    p_migrate = db_sub.add_parser("migrate", help="Run schema migrations")
+    p_migrate = db_sub.add_parser("migrate", parents=[common], help="Run schema migrations")
     p_migrate.set_defaults(func=_cmd_db_migrate)
 
-    p_stats = db_sub.add_parser("stats", help="Show contributor/decision counts")
+    p_stats = db_sub.add_parser("stats", parents=[common], help="Show contributor/decision counts")
     p_stats.set_defaults(func=_cmd_db_stats)
 
     return parser
