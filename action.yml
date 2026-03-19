@@ -16,6 +16,10 @@ inputs:
     description: "Custom cache key prefix for DB persistence"
     required: false
     default: "fossier-db"
+  fail-on-deny:
+    description: "Fail the check run when outcome is DENY (for use as required status check)"
+    required: false
+    default: "false"
 
 outputs:
   outcome:
@@ -56,8 +60,12 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        FOSSIER_FAIL_ON_DENY: ${{ inputs.fail-on-deny }}
       run: |
         python -m fossier.action
         exit_code=$?
-        # Action always succeeds: consumers check outputs
+        if [ "$FOSSIER_FAIL_ON_DENY" = "true" ] && [ "$exit_code" = "1" ]; then
+          echo "::error::Fossier denied this PR"
+          exit 1
+        fi
         exit 0
