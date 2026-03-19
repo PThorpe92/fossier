@@ -125,10 +125,9 @@ class GitHubAPI:
                 return None
             reset = self._rate_reset.get(pool, 0)
             wait = reset - time.time()
-            if wait <= 0:
-                wait = 0
-            # Exponential backoff with jitter: 1s, 2s base + random jitter
-            backoff = min(wait, (2 ** _retries) + random.uniform(0, 1))
+            # Exponential backoff with jitter, capped by rate limit reset time
+            exp_backoff = (2 ** _retries) + random.uniform(0, 1)
+            backoff = min(wait, exp_backoff) if wait > 0 else exp_backoff
             if backoff > 120:
                 logger.error("Rate limited on %s, wait too long (%.0fs)", path, backoff)
                 return None
