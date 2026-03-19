@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from fossier.db import Database
 from fossier.github_api import GitHubAPI
 from fossier.models import Contributor, Decision, Outcome, TrustTier
 from fossier.outcomes import execute_outcome, format_decision_json, format_decision_text
+from fossier.pipeline import evaluate_contributor
 from fossier.scoring import score_contributor
 from fossier.trust import resolve_tier
 from fossier.trustdown import add_denounce, add_vouch
@@ -111,6 +113,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_denounce.set_defaults(func=_cmd_denounce)
 
+    # init
+    p_init = sub.add_parser("init", parents=[common], help="Initialize fossier config and files")
+    p_init.set_defaults(func=_cmd_init)
+
+    # scan
+    p_scan = sub.add_parser("scan", parents=[common], help="Bulk-evaluate all open PRs")
+    p_scan.set_defaults(func=_cmd_scan)
+
     # db subcommands
     p_db = sub.add_parser("db", parents=[common], help="Database operations")
     db_sub = p_db.add_subparsers(title="db commands")
@@ -120,6 +130,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_stats = db_sub.add_parser("stats", parents=[common], help="Show contributor/decision counts")
     p_stats.set_defaults(func=_cmd_db_stats)
+
+    p_prune = db_sub.add_parser("prune", parents=[common], help="Remove expired cache entries")
+    p_prune.set_defaults(func=_cmd_db_prune)
 
     return parser
 
@@ -142,51 +155,9 @@ def _cmd_check(args: argparse.Namespace) -> int:
     api = GitHubAPI(config, db)
 
     try:
-        username = args.username.lower()
-
-        # Resolve trust tier
-        tier, reason = resolve_tier(username, config, db, api)
-        contributor = Contributor(
-            username=username,
-            repo_owner=config.repo_owner,
-            repo_name=config.repo_name,
-            trust_tier=tier,
+        decision = evaluate_contributor(
+            args.username, config, db, api, pr_number=args.pr
         )
-
-        score_result = None
-
-        if tier == TrustTier.BLOCKED:
-            outcome = Outcome.DENY
-            contributor.blocked_reason = reason
-        elif tier in (TrustTier.TRUSTED, TrustTier.KNOWN):
-            outcome = Outcome.ALLOW
-        else:
-            # Unknown → run scoring
-            score_result = score_contributor(api, config, username, args.pr)
-            outcome = score_result.outcome
-            contributor.latest_score = score_result.total_score
-            if outcome == Outcome.ALLOW:
-                contributor.trust_tier = TrustTier.KNOWN
-
-        decision = Decision(
-            contributor=contributor,
-            trust_tier=tier,
-            outcome=outcome,
-            reason=reason
-            if tier != TrustTier.UNKNOWN
-            else f"Score: {score_result.total_score}"
-            if score_result
-            else reason,
-            score_result=score_result,
-            pr_number=args.pr,
-        )
-
-        # Record in DB
-        contributor_id = db.upsert_contributor(contributor)
-        score_history_id = None
-        if score_result:
-            score_history_id = db.record_score(contributor_id, score_result, args.pr)
-        db.record_decision(contributor_id, decision, score_history_id)
 
         # Execute outcome actions
         execute_outcome(decision, config, api)
@@ -194,7 +165,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
         # Output
         _output_decision(decision, config)
 
-        return _outcome_exit_code(outcome)
+        return _outcome_exit_code(decision.outcome)
     finally:
         api.close()
         db.close()
@@ -357,6 +328,20 @@ def _cmd_db_stats(args: argparse.Namespace) -> int:
                     f"  {outcome.value:10s} {stats.get(f'decisions_{outcome.value}', 0)}"
                 )
 
+        return EXIT_ALLOW
+    finally:
+        db.close()
+
+
+def _cmd_db_prune(args: argparse.Namespace) -> int:
+    """Remove expired cache entries."""
+    config = load_config(cli_overrides=_get_config(args))
+    db = Database(config.db_path)
+    db.connect()
+
+    try:
+        removed = db.prune_cache()
+        print(f"Pruned {removed} expired cache entries")
         return EXIT_ALLOW
     finally:
         db.close()
