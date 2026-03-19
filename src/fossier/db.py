@@ -245,12 +245,36 @@ class Database:
 
     # --- Cache ---
 
+    def prune_cache(self) -> int:
+        """Remove expired cache entries. Returns number of entries removed."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        result = self.conn.execute(
+            "SELECT COUNT(*) FROM api_cache WHERE expires_at <= ?", [now]
+        )
+        count = result.fetchone()[0]
+        if count > 0:
+            self.conn.execute("DELETE FROM api_cache WHERE expires_at <= ?", [now])
+            self.conn.commit()
+        return count
+
     def get_cached(self, cache_key: str) -> dict | None:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         result = self.conn.execute(
             """SELECT response_json, etag FROM api_cache
                WHERE cache_key = ? AND expires_at > ?""",
             [cache_key, now],
+        )
+        row = result.fetchone()
+        if not row:
+            return None
+        return {"data": json.loads(row[0]), "etag": row[1]}
+
+    def get_cached_expired(self, cache_key: str) -> dict | None:
+        """Return an expired cache entry if it has an etag (for conditional requests)."""
+        result = self.conn.execute(
+            """SELECT response_json, etag FROM api_cache
+               WHERE cache_key = ? AND etag IS NOT NULL""",
+            [cache_key],
         )
         row = result.fetchone()
         if not row:
