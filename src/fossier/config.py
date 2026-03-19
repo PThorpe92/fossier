@@ -19,18 +19,19 @@ _CONFIG_PATHS = [
 
 # Default signal weights (must sum to ~1.0)
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "account_age": 0.12,
-    "public_repos": 0.08,
-    "contribution_history": 0.08,
-    "open_prs_elsewhere": 0.12,
-    "prior_interaction": 0.12,
-    "pr_content": 0.12,
-    "follower_ratio": 0.08,
-    "bot_signals": 0.08,
+    "account_age": 0.11,
+    "public_repos": 0.07,
+    "contribution_history": 0.07,
+    "open_prs_elsewhere": 0.11,
+    "prior_interaction": 0.11,
+    "pr_content": 0.11,
+    "follower_ratio": 0.07,
+    "bot_signals": 0.07,
     "commit_email": 0.05,
     "pr_description": 0.05,
     "repo_stars": 0.05,
     "org_membership": 0.05,
+    "commit_verification": 0.08,
 }
 
 

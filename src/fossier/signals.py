@@ -52,6 +52,11 @@ def collect_signals(
         ("open_prs_elsewhere", _signal_open_prs),
         ("prior_interaction", _signal_prior_interaction),
         ("pr_content", _signal_pr_content),
+        ("commit_email", _signal_commit_email),
+        ("pr_description", _signal_pr_description),
+        ("repo_stars", _signal_repo_stars),
+        ("org_membership", _signal_org_membership),
+        ("commit_verification", _signal_commit_verification),
     ]
 
     results = []
@@ -211,3 +216,125 @@ def _signal_pr_content(
         "has_tests": has_tests,
     }
     return SignalResult("pr_content", str(raw), normalized, 0)
+
+
+# Disposable email domain patterns
+_DISPOSABLE_EMAIL_DOMAINS = {
+    "mailinator.com", "guerrillamail.com", "tempmail.com", "throwaway.email",
+    "10minutemail.com", "yopmail.com", "trashmail.com", "sharklasers.com",
+    "guerrillamailblock.com", "grr.la", "dispostable.com",
+}
+
+def _signal_commit_email(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+) -> SignalResult:
+    """Check if commit email matches GitHub profile. Disposable domains are suspicious."""
+    user = api.get_user(username)
+    if not user:
+        return SignalResult("commit_email", 0, 0.0, 0, success=False, error="User not found")
+
+    email = (user.get("email") or "").lower()
+    if not email:
+        # No public email - neutral signal
+        return SignalResult("commit_email", "no_email", 0.5, 0)
+
+    # Check for disposable email domains
+    domain = email.split("@")[-1] if "@" in email else ""
+    if domain in _DISPOSABLE_EMAIL_DOMAINS:
+        return SignalResult("commit_email", email, 0.1, 0)
+
+    # Has a real email set - positive signal
+    return SignalResult("commit_email", email, 0.8, 0)
+
+
+def _signal_pr_description(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+) -> SignalResult:
+    """Analyze PR title/body. Empty descriptions and keyword stuffing are spam signals."""
+    if pr is None:
+        return SignalResult("pr_description", "no_pr", 0.5, 0, success=False, error="No PR number")
+
+    pr_data = api.get_pr(owner, repo, pr)
+    if not pr_data:
+        return SignalResult("pr_description", "not_found", 0.5, 0, success=False, error="PR not found")
+
+    title = pr_data.get("title", "")
+    body = pr_data.get("body") or ""
+
+    score = 0.5  # neutral baseline
+
+    # Empty body is suspicious
+    if not body.strip():
+        score -= 0.3
+
+    # Very short title
+    if len(title) < 10:
+        score -= 0.1
+
+    # Substantive body
+    if len(body) > 50:
+        score += 0.2
+
+    # Links in body (could be spam or could be legitimate references)
+    link_count = body.lower().count("http")
+    if link_count > 5:
+        score -= 0.2  # excessive links
+    elif link_count > 0:
+        score += 0.1  # some references is good
+
+    normalized = max(0.0, min(1.0, score))
+    raw = {"title_len": len(title), "body_len": len(body), "link_count": link_count}
+    return SignalResult("pr_description", str(raw), normalized, 0)
+
+
+def _signal_repo_stars(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+) -> SignalResult:
+    """High-star repos attract more spam. Returns higher scrutiny for popular repos."""
+    repo_data = api.get_repo(owner, repo)
+    if not repo_data:
+        return SignalResult("repo_stars", 0, 0.5, 0, success=False, error="Repo not found")
+
+    stars = repo_data.get("stargazers_count", 0)
+    # Higher star repos should increase scrutiny (lower normalized = more suspicious context)
+    # 0 stars -> 1.0, 1000+ stars -> 0.3 (floor)
+    normalized = max(0.3, 1.0 - (stars / 1500))
+    return SignalResult("repo_stars", stars, round(normalized, 3), 0)
+
+
+def _signal_org_membership(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+) -> SignalResult:
+    """Users belonging to GitHub orgs are less likely to be spam."""
+    orgs = api.get_user_orgs(username)
+    # -1 would indicate an error in the list case, but empty list is valid
+    count = len(orgs)
+    if count > 0:
+        normalized = min(count / 3, 1.0)  # 3+ orgs = max trust
+    else:
+        normalized = 0.2  # no orgs = slight negative but not strongly
+    return SignalResult("org_membership", count, normalized, 0)
+
+
+def _signal_commit_verification(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+) -> SignalResult:
+    """Check if PR commits are GPG/SSH signed. Signed commits indicate higher trust."""
+    if pr is None:
+        return SignalResult("commit_verification", "no_pr", 0.5, 0, success=False, error="No PR number")
+
+    commits = api.get_pr_commits(owner, repo, pr)
+    if not commits:
+        return SignalResult("commit_verification", "no_commits", 0.5, 0, success=False, error="No commits found")
+
+    total = len(commits)
+    verified = sum(
+        1 for c in commits
+        if c.get("commit", {}).get("verification", {}).get("verified", False)
+    )
+
+    ratio = verified / total
+    # All signed = 1.0, none signed = 0.3 (not signing isn't strongly negative)
+    normalized = 0.3 + (ratio * 0.7)
+    raw = {"total_commits": total, "verified": verified, "ratio": round(ratio, 2)}
+    return SignalResult("commit_verification", str(raw), round(normalized, 3), 0)

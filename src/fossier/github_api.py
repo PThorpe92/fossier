@@ -328,3 +328,10 @@ class GitHubAPI:
     def get_repo(self, owner: str, repo: str) -> dict | None:
         """Get repository details."""
         return self.get(f"/repos/{owner}/{repo}")
+
+    def get_pr_commits(self, owner: str, repo: str, pr_number: int) -> list[dict]:
+        """Get commits for a PR (includes verification info)."""
+        data = self.get(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits")
+        if not data or not isinstance(data, list):
+            return []
+        return data
