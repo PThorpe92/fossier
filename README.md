@@ -1,4 +1,5 @@
 # Fossier
+<img src=logo.png />
 
 GitHub spam prevention for open source repositories.
 
@@ -211,7 +212,7 @@ fossier denounce spammer --reason "SEO link spam"
 
 ## Database
 
-Fossier uses an embedded [Turso](https://turso.tech/) (SQLite-compatible) database stored as `.fossier.db`. In CI, it's persisted across runs via GitHub Actions cache.
+Fossier uses an embedded [Turso](https://turso.tech/) (SQLite-compatible) database stored as `.fossier.db`. **Commit this file to your repo** — it carries contributor history, prior spam decisions, and the `known` tier cache. In CI, it's also persisted via GitHub Actions cache for faster access between runs.
 
 Tables:
 - **contributors**: username, trust tier, latest score, first/last seen
@@ -219,7 +220,7 @@ Tables:
 - **decisions**: audit log of every allow/review/deny decision
 - **api_cache**: cached GitHub API responses with TTL and ETag support
 
-Run migrations explicitly with `fossier db migrate`, or they run automatically on first connect.
+Run `fossier db prune` periodically to clean expired cache entries. Migrations run automatically on first connect, or explicitly with `fossier db migrate`.
 
 ## Requirements
 
