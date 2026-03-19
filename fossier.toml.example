@@ -13,14 +13,19 @@ min_confidence = 0.5  # Below this → force REVIEW regardless of score
 
 [weights]
 # Signal weights (auto-normalized to sum to 1.0)
-account_age = 0.15
-public_repos = 0.10
-contribution_history = 0.10
-open_prs_elsewhere = 0.15
-prior_interaction = 0.15
-pr_content = 0.15
-follower_ratio = 0.10
-bot_signals = 0.10
+account_age = 0.11
+public_repos = 0.07
+contribution_history = 0.07
+open_prs_elsewhere = 0.11
+prior_interaction = 0.11
+pr_content = 0.11
+follower_ratio = 0.07
+bot_signals = 0.07
+commit_email = 0.05
+pr_description = 0.05
+repo_stars = 0.05
+org_membership = 0.05
+commit_verification = 0.08
 
 [actions.deny]
 close_pr = true
@@ -40,3 +45,4 @@ collaborators_hours = 6
 # Additional trusted/blocked users beyond VOUCHED.td and CODEOWNERS
 # trusted_users = ["dependabot", "renovate"]
 # blocked_users = ["known-spammer"]
+# bot_policy = "score"  # "score" (default), "allow", or "block"
