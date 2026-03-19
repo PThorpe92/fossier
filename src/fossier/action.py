@@ -10,10 +10,9 @@ import sys
 from fossier.config import load_config
 from fossier.db import Database
 from fossier.github_api import GitHubAPI
-from fossier.models import Contributor, Decision, Outcome, TrustTier
+from fossier.models import Outcome
 from fossier.outcomes import execute_outcome, format_decision_json
-from fossier.scoring import score_contributor
-from fossier.trust import resolve_tier
+from fossier.pipeline import evaluate_contributor
 
 logger = logging.getLogger(__name__)
 
@@ -48,57 +47,23 @@ def action_main() -> int:
     api = GitHubAPI(config, db)
 
     try:
-        # Resolve tier
-        tier, reason = resolve_tier(username, config, db, api)
-        contributor = Contributor(
-            username=username,
-            repo_owner=config.repo_owner,
-            repo_name=config.repo_name,
-            trust_tier=tier,
-        )
-        score_result = None
-        if tier == TrustTier.BLOCKED:
-            outcome = Outcome.DENY
-            contributor.blocked_reason = reason
-        elif tier in (TrustTier.TRUSTED, TrustTier.KNOWN):
-            outcome = Outcome.ALLOW
-        else:
-            score_result = score_contributor(api, config, username, pr_number)
-            outcome = score_result.outcome
-            contributor.latest_score = score_result.total_score
-            if outcome == Outcome.ALLOW:
-                contributor.trust_tier = TrustTier.KNOWN
-
-        decision = Decision(
-            contributor=contributor,
-            trust_tier=tier,
-            outcome=outcome,
-            reason=reason
-            if tier != TrustTier.UNKNOWN
-            else f"Score: {score_result.total_score}"
-            if score_result
-            else reason,
-            score_result=score_result,
-            pr_number=pr_number,
-        )
-
-        # Record
-        contributor_id = db.upsert_contributor(contributor)
-        score_history_id = None
-        if score_result:
-            score_history_id = db.record_score(contributor_id, score_result, pr_number)
-        db.record_decision(contributor_id, decision, score_history_id)
+        decision = evaluate_contributor(username, config, db, api, pr_number)
 
         # Execute
         execute_outcome(decision, config, api)
 
         # Set GitHub Action outputs
+        outcome = decision.outcome
         _set_output("outcome", outcome.value)
-        _set_output("tier", tier.value)
-        _set_output("score", str(score_result.total_score) if score_result else "")
+        _set_output("tier", decision.trust_tier.value)
+        score_str = str(decision.score_result.total_score) if decision.score_result else ""
+        _set_output("score", score_str)
         _set_output("details", json.dumps(format_decision_json(decision)))
 
-        logger.info("Decision: %s (%s) — %s", outcome.value, tier.value, reason)
+        logger.info(
+            "Decision: %s (%s) — %s",
+            outcome.value, decision.trust_tier.value, decision.reason,
+        )
 
         return {Outcome.ALLOW: 0, Outcome.DENY: 1, Outcome.REVIEW: 2}[outcome]
     finally:
