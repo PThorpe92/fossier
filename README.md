@@ -1,5 +1,8 @@
+<p align="center">
+  <img src="logo.png" alt="Fossier" width="300" />
+</p>
+
 # Fossier
-<img src=logo.png />
 
 GitHub spam prevention for open source repositories.
 
