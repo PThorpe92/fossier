@@ -61,10 +61,7 @@ def compute_score(signals: list[SignalResult], config: Config) -> ScoreResult:
     for s in successful:
         total_score += s.normalized * s.weight * 100
 
-    confidence = sum(s.weight for s in successful if s.success)
-    # Normalize confidence: original weights sum to 1.0, redistributed may be higher
-    confidence = min(confidence / max(sum(s.weight for s in signals), 1.0), 1.0)
-    # Use original success ratio as confidence
+    # Confidence = ratio of original successful weight to total weight
     confidence = total_success_weight / max(
         total_success_weight + total_failed_weight, 0.001
     )
