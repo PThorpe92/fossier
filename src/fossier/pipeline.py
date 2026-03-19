@@ -32,44 +32,29 @@ def evaluate_contributor(
     # Check bot policy before full pipeline
     if config.bot_policy != "score" and _BOT_USERNAME_PATTERNS.search(username):
         if config.bot_policy == "allow":
-            tier = TrustTier.TRUSTED
+            tier, outcome = TrustTier.TRUSTED, Outcome.ALLOW
             reason = "Bot auto-allowed by bot_policy config"
-            contributor = Contributor(
-                username=username,
-                repo_owner=config.repo_owner,
-                repo_name=config.repo_name,
-                trust_tier=tier,
-            )
-            decision = Decision(
-                contributor=contributor,
-                trust_tier=tier,
-                outcome=Outcome.ALLOW,
-                reason=reason,
-                pr_number=pr_number,
-            )
-            contributor_id = db.upsert_contributor(contributor)
-            db.record_decision(contributor_id, decision, None)
-            return decision
-        elif config.bot_policy == "block":
-            tier = TrustTier.BLOCKED
+        else:
+            tier, outcome = TrustTier.BLOCKED, Outcome.DENY
             reason = "Bot auto-blocked by bot_policy config"
-            contributor = Contributor(
-                username=username,
-                repo_owner=config.repo_owner,
-                repo_name=config.repo_name,
-                trust_tier=tier,
-                blocked_reason=reason,
-            )
-            decision = Decision(
-                contributor=contributor,
-                trust_tier=tier,
-                outcome=Outcome.DENY,
-                reason=reason,
-                pr_number=pr_number,
-            )
-            contributor_id = db.upsert_contributor(contributor)
-            db.record_decision(contributor_id, decision, None)
-            return decision
+
+        contributor = Contributor(
+            username=username,
+            repo_owner=config.repo_owner,
+            repo_name=config.repo_name,
+            trust_tier=tier,
+            blocked_reason=reason if outcome == Outcome.DENY else None,
+        )
+        decision = Decision(
+            contributor=contributor,
+            trust_tier=tier,
+            outcome=outcome,
+            reason=reason,
+            pr_number=pr_number,
+        )
+        contributor_id = db.upsert_contributor(contributor)
+        db.record_decision(contributor_id, decision, None)
+        return decision
 
     # Resolve trust tier
     tier, reason = resolve_tier(username, config, db, api)
@@ -95,15 +80,19 @@ def evaluate_contributor(
         if outcome == Outcome.ALLOW:
             contributor.trust_tier = TrustTier.KNOWN
 
+    # Build reason string
+    if tier != TrustTier.UNKNOWN:
+        decision_reason = reason
+    elif score_result:
+        decision_reason = f"Score: {score_result.total_score}"
+    else:
+        decision_reason = reason
+
     decision = Decision(
         contributor=contributor,
         trust_tier=tier,
         outcome=outcome,
-        reason=reason
-        if tier != TrustTier.UNKNOWN
-        else f"Score: {score_result.total_score}"
-        if score_result
-        else reason,
+        reason=decision_reason,
         score_result=score_result,
         pr_number=pr_number,
     )
