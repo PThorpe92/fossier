@@ -24,58 +24,66 @@ def _mock_api(user_data=None, pr_files=None, search_prs=-1, prior=False):
 
 
 def test_account_age_old_account():
-    api = _mock_api(user_data={"created_at": "2020-01-01T00:00:00Z"})
-    result = _signal_account_age(api, "user", "o", "r", None)
+    user = {"created_at": "2020-01-01T00:00:00Z"}
+    api = _mock_api(user_data=user)
+    result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
     assert result.success
     assert result.normalized > 0.5
 
 
 def test_account_age_new_account():
-    api = _mock_api(user_data={"created_at": "2026-03-01T00:00:00Z"})
-    result = _signal_account_age(api, "user", "o", "r", None)
+    user = {"created_at": "2026-03-01T00:00:00Z"}
+    api = _mock_api(user_data=user)
+    result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
     assert result.success
     assert result.normalized < 0.1
 
 
 def test_account_age_user_not_found():
     api = _mock_api(user_data=None)
-    result = _signal_account_age(api, "ghost", "o", "r", None)
+    result = _signal_account_age(api, "ghost", "o", "r", None, user_profile=None)
     assert not result.success
 
 
 def test_public_repos_many():
-    api = _mock_api(user_data={"public_repos": 30})
-    result = _signal_public_repos(api, "user", "o", "r", None)
+    user = {"public_repos": 30}
+    api = _mock_api(user_data=user)
+    result = _signal_public_repos(api, "user", "o", "r", None, user_profile=user)
     assert result.normalized == 1.0
 
 
 def test_public_repos_few():
-    api = _mock_api(user_data={"public_repos": 2})
-    result = _signal_public_repos(api, "user", "o", "r", None)
+    user = {"public_repos": 2}
+    api = _mock_api(user_data=user)
+    result = _signal_public_repos(api, "user", "o", "r", None, user_profile=user)
     assert result.normalized == 0.1
 
 
 def test_follower_ratio_high():
-    api = _mock_api(user_data={"followers": 100, "following": 10})
-    result = _signal_follower_ratio(api, "user", "o", "r", None)
+    user = {"followers": 100, "following": 10}
+    api = _mock_api(user_data=user)
+    result = _signal_follower_ratio(api, "user", "o", "r", None, user_profile=user)
     assert result.normalized == 1.0
 
 
 def test_follower_ratio_low():
-    api = _mock_api(user_data={"followers": 0, "following": 50})
-    result = _signal_follower_ratio(api, "user", "o", "r", None)
+    user = {"followers": 0, "following": 50}
+    api = _mock_api(user_data=user)
+    result = _signal_follower_ratio(api, "user", "o", "r", None, user_profile=user)
     assert result.normalized == 0.0
 
 
 def test_bot_detection_bot_type():
-    api = _mock_api(user_data={"type": "Bot"})
-    result = _signal_bot(api, "dependabot[bot]", "o", "r", None)
+    user = {"type": "Bot"}
+    api = _mock_api(user_data=user)
+    result = _signal_bot(api, "dependabot[bot]", "o", "r", None, user_profile=user)
     assert result.normalized == 0.0
 
 
 def test_bot_detection_human():
-    api = _mock_api(user_data={"type": "User"})
-    result = _signal_bot(api, "alice", "o", "r", None)
+    user = {"type": "User"}
+    api = _mock_api(user_data=user)
+    result = _signal_bot(api, "alice", "o", "r", None, user_profile=user)
     assert result.normalized == 1.0
 
 
@@ -89,6 +97,13 @@ def test_open_prs_many():
     api = _mock_api(search_prs=20)
     result = _signal_open_prs(api, "user", "o", "r", None)
     assert result.normalized == 0.0
+
+
+def test_open_prs_search_failed():
+    api = _mock_api(search_prs=-1)
+    result = _signal_open_prs(api, "user", "o", "r", None)
+    assert not result.success
+    assert result.normalized == 0.5  # neutral, not penalizing
 
 
 def test_prior_interaction_yes():
@@ -131,16 +146,17 @@ def test_pr_content_no_pr():
 
 
 def test_collect_signals_returns_all():
+    user_data = {
+        "created_at": "2020-01-01T00:00:00Z",
+        "public_repos": 10,
+        "public_gists": 2,
+        "followers": 5,
+        "following": 10,
+        "type": "User",
+        "email": "user@example.com",
+    }
     api = _mock_api(
-        user_data={
-            "created_at": "2020-01-01T00:00:00Z",
-            "public_repos": 10,
-            "public_gists": 2,
-            "followers": 5,
-            "following": 10,
-            "type": "User",
-            "email": "user@example.com",
-        },
+        user_data=user_data,
         search_prs=3,
         prior=True,
     )
@@ -160,3 +176,29 @@ def test_collect_signals_returns_all():
     assert "repo_stars" in names
     assert "org_membership" in names
     assert "commit_verification" in names
+
+
+def test_collect_signals_fetches_user_once():
+    """User profile should be fetched exactly once, not per-signal."""
+    user_data = {
+        "created_at": "2020-01-01T00:00:00Z",
+        "public_repos": 10,
+        "public_gists": 2,
+        "followers": 5,
+        "following": 10,
+        "type": "User",
+        "email": "user@example.com",
+    }
+    api = _mock_api(
+        user_data=user_data,
+        search_prs=3,
+        prior=True,
+    )
+    api.get_user_orgs.return_value = ["some-org"]
+    api.get_pr.return_value = {"title": "Add feature", "body": "Some description"}
+    api.get_repo.return_value = {"stargazers_count": 100}
+    api.get_pr_commits.return_value = [
+        {"commit": {"verification": {"verified": True}}},
+    ]
+    collect_signals(api, "user", "o", "r")
+    assert api.get_user.call_count == 1

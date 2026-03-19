@@ -118,6 +118,17 @@ class TestCommentFormatting:
         assert "Score Breakdown" in body
         assert "account_age" in body
 
+    def test_deny_comment_includes_contact_url(self):
+        decision = _make_decision(Outcome.DENY, score=30.0)
+        body = _format_deny_comment(decision, contact_url="https://discord.gg/test")
+        assert "https://discord.gg/test" in body
+        assert "appeal" in body.lower()
+
+    def test_deny_comment_no_contact_url(self):
+        decision = _make_decision(Outcome.DENY, score=30.0)
+        body = _format_deny_comment(decision)
+        assert "reach the maintainers" not in body
+
     def test_review_comment_has_header(self):
         decision = _make_decision(Outcome.REVIEW, score=55.0)
         body = _format_review_comment(decision)
