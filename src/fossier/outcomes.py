@@ -43,7 +43,7 @@ def _execute_deny(
 ) -> None:
     if config.deny_action.comment:
         body = _format_deny_comment(decision)
-        api.post_comment(owner, repo, pr, body)
+        api.post_or_update_comment(owner, repo, pr, body)
 
     if config.deny_action.label:
         api.add_labels(owner, repo, pr, [config.deny_action.label])
@@ -58,7 +58,7 @@ def _execute_review(
 ) -> None:
     if config.review_action.comment:
         body = _format_review_comment(decision)
-        api.post_comment(owner, repo, pr, body)
+        api.post_or_update_comment(owner, repo, pr, body)
 
     if config.review_action.label:
         api.add_labels(owner, repo, pr, [config.review_action.label])
