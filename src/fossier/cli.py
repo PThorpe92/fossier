@@ -347,11 +347,213 @@ def _cmd_db_prune(args: argparse.Namespace) -> int:
         db.close()
 
 
+def _cmd_init(args: argparse.Namespace) -> int:
+    """Interactive setup: create fossier.toml and VOUCHED.td."""
+    config = load_config(cli_overrides=_get_config(args))
+    root = config.repo_root
+
+    # Create fossier.toml
+    toml_path = root / "fossier.toml"
+    if toml_path.exists():
+        print(f"fossier.toml already exists at {toml_path}")
+    else:
+        owner = config.repo_owner or "your-org"
+        name = config.repo_name or "your-repo"
+        toml_path.write_text(
+            f'[repo]\nowner = "{owner}"\nname = "{name}"\n\n'
+            "[thresholds]\nallow_score = 70.0\ndeny_score = 40.0\n"
+            "min_confidence = 0.5\n\n"
+            "[actions.deny]\nclose_pr = true\ncomment = true\n"
+            'label = "fossier:spam-likely"\n\n'
+            "[actions.review]\ncomment = true\n"
+            'label = "fossier:needs-review"\n'
+        )
+        print(f"Created {toml_path}")
+
+    # Create VOUCHED.td
+    td_path = root / "VOUCHED.td"
+    if td_path.exists():
+        print(f"VOUCHED.td already exists at {td_path}")
+    else:
+        td_path.write_text(
+            "# VOUCHED.td — Fossier trust declarations\n"
+            "# Lines starting with + vouch for a user\n"
+            "# Lines starting with - denounce a user (reason required)\n"
+            "#\n"
+            "# Examples:\n"
+            "# + trusteduser\n"
+            "# - spammer  Known SEO link spam\n"
+        )
+        print(f"Created {td_path}")
+
+    # Optionally create GitHub Action workflow
+    workflow_dir = root / ".github" / "workflows"
+    workflow_path = workflow_dir / "fossier.yml"
+    if workflow_path.exists():
+        print(f"Workflow already exists at {workflow_path}")
+    else:
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        workflow_path.write_text(
+            "name: Fossier PR Check\n\n"
+            "on:\n"
+            "  pull_request:\n"
+            "    types: [opened, synchronize]\n\n"
+            "jobs:\n"
+            "  check:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    permissions:\n"
+            "      pull-requests: write\n"
+            "      issues: write\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v4\n"
+            "      - uses: ./\n"
+            "        with:\n"
+            "          github-token: ${{ secrets.GITHUB_TOKEN }}\n"
+        )
+        print(f"Created {workflow_path}")
+
+    # Run DB migration
+    db = Database(config.db_path)
+    db.connect()
+    db.close()
+    print("Database initialized")
+
+    return EXIT_ALLOW
+
+
+def _cmd_scan(args: argparse.Namespace) -> int:
+    """Bulk-evaluate all open PRs on the repo."""
+    config = load_config(cli_overrides=_get_config(args))
+    db = Database(config.db_path)
+    db.connect()
+    api = GitHubAPI(config, db)
+
+    try:
+        if not config.repo_owner or not config.repo_name:
+            logger.error("Repository not configured. Use --repo owner/repo or set up fossier.toml")
+            return EXIT_ERROR
+
+        # Fetch open PRs
+        data = api.get(
+            f"/repos/{config.repo_owner}/{config.repo_name}/pulls",
+            params={"state": "open", "per_page": "100"},
+        )
+        if not data or not isinstance(data, list):
+            print("No open PRs found")
+            return EXIT_ALLOW
+
+        results = []
+        for pr_data in data:
+            pr_number = pr_data["number"]
+            username = pr_data["user"]["login"].lower()
+
+            decision = evaluate_contributor(username, config, db, api, pr_number)
+            results.append(decision)
+
+            if config.output_format == "text":
+                outcome_str = _colorize_outcome(decision.outcome)
+                print(
+                    f"PR #{pr_number:4d}  @{username:20s}  "
+                    f"{decision.trust_tier.value:8s}  {outcome_str}"
+                )
+
+        if config.output_format == "json":
+            print(json.dumps([format_decision_json(d) for d in results], indent=2))
+        elif config.output_format == "table":
+            _print_decisions_table(results)
+
+        print(f"\nScanned {len(results)} open PRs")
+        return EXIT_ALLOW
+    finally:
+        api.close()
+        db.close()
+
+
+# --- Output formatting ---
+
+_ANSI_COLORS = {
+    "green": "\033[32m",
+    "yellow": "\033[33m",
+    "red": "\033[31m",
+    "bold": "\033[1m",
+    "reset": "\033[0m",
+}
+
+
+def _supports_color() -> bool:
+    """Check if terminal supports ANSI colors."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    if not hasattr(sys.stdout, "isatty"):
+        return False
+    return sys.stdout.isatty()
+
+
+def _colorize_outcome(outcome: Outcome) -> str:
+    """Return outcome text with ANSI color if terminal supports it."""
+    text = outcome.value.upper()
+    if not _supports_color():
+        return text
+    color_map = {
+        Outcome.ALLOW: _ANSI_COLORS["green"],
+        Outcome.REVIEW: _ANSI_COLORS["yellow"],
+        Outcome.DENY: _ANSI_COLORS["red"],
+    }
+    color = color_map.get(outcome, "")
+    return f"{color}{_ANSI_COLORS['bold']}{text}{_ANSI_COLORS['reset']}"
+
+
+def _format_table(headers: list[str], rows: list[list[str]]) -> str:
+    """Format data as a simple ASCII table."""
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            if i < len(widths):
+                widths[i] = max(widths[i], len(cell))
+
+    lines = []
+    header_line = " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers))
+    lines.append(header_line)
+    lines.append("-+-".join("-" * w for w in widths))
+    for row in rows:
+        line = " | ".join(
+            (row[i] if i < len(row) else "").ljust(widths[i])
+            for i in range(len(headers))
+        )
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _print_decisions_table(decisions: list[Decision]) -> None:
+    """Print decisions as an ASCII table."""
+    headers = ["PR", "User", "Tier", "Outcome", "Score", "Reason"]
+    rows = []
+    for d in decisions:
+        score = f"{d.score_result.total_score:.1f}" if d.score_result else "—"
+        rows.append([
+            f"#{d.pr_number}" if d.pr_number else "—",
+            d.contributor.username,
+            d.trust_tier.value,
+            d.outcome.value.upper(),
+            score,
+            d.reason[:40],
+        ])
+    print(_format_table(headers, rows))
+
+
 def _output_decision(decision: Decision, config) -> None:
     if config.output_format == "json":
         print(json.dumps(format_decision_json(decision), indent=2))
+    elif config.output_format == "table":
+        _print_decisions_table([decision])
     else:
-        print(format_decision_text(decision))
+        text = format_decision_text(decision)
+        if _supports_color():
+            for outcome in Outcome:
+                plain = outcome.value.upper()
+                colored = _colorize_outcome(outcome)
+                text = text.replace(f"Outcome:  {plain}", f"Outcome:  {colored}")
+        print(text)
 
 
 def _outcome_exit_code(outcome: Outcome) -> int:
