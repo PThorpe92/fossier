@@ -1,0 +1,203 @@
+"""Configuration loading: fossier.toml + environment + CLI overrides."""
+
+from __future__ import annotations
+
+import logging
+import os
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+_CONFIG_PATHS = [
+    "fossier.toml",
+    ".github/fossier.toml",
+]
+
+# Default signal weights (must sum to ~1.0)
+DEFAULT_WEIGHTS: dict[str, float] = {
+    "account_age": 0.15,
+    "public_repos": 0.10,
+    "contribution_history": 0.10,
+    "open_prs_elsewhere": 0.15,
+    "prior_interaction": 0.15,
+    "pr_content": 0.15,
+    "follower_ratio": 0.10,
+    "bot_signals": 0.10,
+}
+
+
+@dataclass
+class ThresholdConfig:
+    allow_score: float = 70.0
+    deny_score: float = 40.0
+    min_confidence: float = 0.5
+
+
+@dataclass
+class DenyActionConfig:
+    close_pr: bool = True
+    comment: bool = True
+    label: str = "fossier:spam-likely"
+
+
+@dataclass
+class ReviewActionConfig:
+    comment: bool = True
+    label: str = "fossier:needs-review"
+
+
+@dataclass
+class CacheTTLConfig:
+    user_profile_hours: int = 24
+    search_hours: int = 1
+    collaborators_hours: int = 6
+
+
+@dataclass
+class Config:
+    repo_owner: str = ""
+    repo_name: str = ""
+    repo_root: Path = field(default_factory=lambda: Path("."))
+    db_path: str = ".fossier.db"
+    github_token: str = ""
+
+    thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
+    signal_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    deny_action: DenyActionConfig = field(default_factory=DenyActionConfig)
+    review_action: ReviewActionConfig = field(default_factory=ReviewActionConfig)
+    cache_ttl: CacheTTLConfig = field(default_factory=CacheTTLConfig)
+
+    trusted_users: set[str] = field(default_factory=set)
+    blocked_users: set[str] = field(default_factory=set)
+
+    verbose: bool = False
+    dry_run: bool = False
+    output_format: str = "text"  # text, json, table
+
+
+def load_config(
+    repo_root: Path | None = None,
+    cli_overrides: dict | None = None,
+) -> Config:
+    """Load config from fossier.toml + env vars + CLI overrides."""
+    root = repo_root or Path(".")
+    config = Config(repo_root=root)
+
+    # Load TOML config file
+    for rel_path in _CONFIG_PATHS:
+        path = root / rel_path
+        if path.is_file():
+            logger.debug("Loading config from %s", path)
+            _apply_toml(config, path)
+            break
+
+    # Environment overrides
+    _apply_env(config)
+
+    # CLI overrides
+    if cli_overrides:
+        _apply_cli(config, cli_overrides)
+
+    # Normalize weights to sum to 1.0
+    _normalize_weights(config)
+
+    return config
+
+
+def _apply_toml(config: Config, path: Path) -> None:
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    if "repo" in data:
+        repo = data["repo"]
+        if "owner" in repo:
+            config.repo_owner = repo["owner"]
+        if "name" in repo:
+            config.repo_name = repo["name"]
+        if "db_path" in repo:
+            config.db_path = repo["db_path"]
+
+    if "thresholds" in data:
+        t = data["thresholds"]
+        if "allow_score" in t:
+            config.thresholds.allow_score = float(t["allow_score"])
+        if "deny_score" in t:
+            config.thresholds.deny_score = float(t["deny_score"])
+        if "min_confidence" in t:
+            config.thresholds.min_confidence = float(t["min_confidence"])
+
+    if "weights" in data:
+        for signal, weight in data["weights"].items():
+            config.signal_weights[signal] = float(weight)
+
+    if "actions" in data:
+        actions = data["actions"]
+        if "deny" in actions:
+            d = actions["deny"]
+            if "close_pr" in d:
+                config.deny_action.close_pr = bool(d["close_pr"])
+            if "comment" in d:
+                config.deny_action.comment = bool(d["comment"])
+            if "label" in d:
+                config.deny_action.label = str(d["label"])
+        if "review" in actions:
+            r = actions["review"]
+            if "comment" in r:
+                config.review_action.comment = bool(r["comment"])
+            if "label" in r:
+                config.review_action.label = str(r["label"])
+
+    if "cache_ttl" in data:
+        c = data["cache_ttl"]
+        if "user_profile_hours" in c:
+            config.cache_ttl.user_profile_hours = int(c["user_profile_hours"])
+        if "search_hours" in c:
+            config.cache_ttl.search_hours = int(c["search_hours"])
+        if "collaborators_hours" in c:
+            config.cache_ttl.collaborators_hours = int(c["collaborators_hours"])
+
+    if "trust" in data:
+        trust = data["trust"]
+        if "trusted_users" in trust:
+            config.trusted_users = {u.lower() for u in trust["trusted_users"]}
+        if "blocked_users" in trust:
+            config.blocked_users = {u.lower() for u in trust["blocked_users"]}
+
+
+def _apply_env(config: Config) -> None:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN", "")
+    if token:
+        config.github_token = token
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if repo and "/" in repo:
+        owner, name = repo.split("/", 1)
+        if not config.repo_owner:
+            config.repo_owner = owner
+        if not config.repo_name:
+            config.repo_name = name
+
+
+def _apply_cli(config: Config, overrides: dict) -> None:
+    if "repo" in overrides and overrides["repo"]:
+        parts = overrides["repo"].split("/", 1)
+        if len(parts) == 2:
+            config.repo_owner, config.repo_name = parts
+
+    if overrides.get("verbose"):
+        config.verbose = True
+    if overrides.get("dry_run"):
+        config.dry_run = True
+    if overrides.get("format"):
+        config.output_format = overrides["format"]
+    if overrides.get("db_path"):
+        config.db_path = overrides["db_path"]
+
+
+def _normalize_weights(config: Config) -> None:
+    total = sum(config.signal_weights.values())
+    if total > 0 and abs(total - 1.0) > 0.01:
+        for signal in config.signal_weights:
+            config.signal_weights[signal] /= total
