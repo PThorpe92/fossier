@@ -4,7 +4,8 @@ sync:
 	uv sync
 
 install:
-	uv tool install . 
+	uv tool install . --force --reinstall
+
 
 build:
 	uv build
