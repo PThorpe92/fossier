@@ -82,9 +82,12 @@ class GitHubAPI:
         if cached:
             logger.debug("Cache hit for %s", path)
             return cached["data"]
-        if cached is None:
-            # Check for expired cache to get etag for conditional request
-            pass
+
+        # Check for expired cache entry with etag for conditional request
+        expired = self.db.get_cached_expired(cache_key)
+        if expired:
+            etag = expired.get("etag")
+            cached = expired  # Keep expired data for 304 response
 
         # Check rate limits
         self._check_rate_limit(pool)
