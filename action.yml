@@ -1,0 +1,63 @@
+name: "Fossier PR Check"
+description: "Evaluate pull request contributors for spam probability"
+branding:
+  icon: "shield"
+  color: "orange"
+
+inputs:
+  github-token:
+    description: "GitHub token with PR write access"
+    required: true
+    default: ${{ github.token }}
+  config-path:
+    description: "Path to fossier.toml (default: auto-detect)"
+    required: false
+  db-cache-key:
+    description: "Custom cache key prefix for DB persistence"
+    required: false
+    default: "fossier-db"
+
+outputs:
+  outcome:
+    description: "Decision outcome: allow, review, or deny"
+    value: ${{ steps.evaluate.outputs.outcome }}
+  tier:
+    description: "Contributor trust tier"
+    value: ${{ steps.evaluate.outputs.tier }}
+  score:
+    description: "Spam score (0-100, only for unknown contributors)"
+    value: ${{ steps.evaluate.outputs.score }}
+  details:
+    description: "Full decision details as JSON"
+    value: ${{ steps.evaluate.outputs.details }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
+    - name: Install fossier
+      shell: bash
+      run: pip install ${{ github.action_path }}
+
+    - name: Restore DB cache
+      uses: actions/cache@v4
+      with:
+        path: .fossier.db
+        key: ${{ inputs.db-cache-key }}-${{ github.repository }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ inputs.db-cache-key }}-${{ github.repository }}-
+
+    - name: Evaluate PR
+      id: evaluate
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        python -m fossier.action
+        exit_code=$?
+        # Action always succeeds: consumers check outputs
+        exit 0
