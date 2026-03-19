@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import subprocess
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,8 +84,22 @@ def load_config(
     cli_overrides: dict | None = None,
 ) -> Config:
     """Load config from fossier.toml + env vars + CLI overrides."""
-    root = repo_root or Path(".")
+    # Auto-detect git repo root if not explicitly provided
+    git_root = repo_root or _detect_git_root()
+    root = git_root or Path(".")
     config = Config(repo_root=root)
+
+    # Auto-detect owner/name from git remote
+    if git_root:
+        owner, name = _parse_git_remote(git_root)
+        if owner and name:
+            config.repo_owner = owner
+            config.repo_name = name
+            logger.debug("Detected repo from git: %s/%s", owner, name)
+
+    # Anchor db_path to repo root
+    if git_root and not os.path.isabs(config.db_path):
+        config.db_path = str(git_root / config.db_path)
 
     # Load TOML config file
     for rel_path in _CONFIG_PATHS:
@@ -201,3 +217,42 @@ def _normalize_weights(config: Config) -> None:
     if total > 0 and abs(total - 1.0) > 0.01:
         for signal in config.signal_weights:
             config.signal_weights[signal] /= total
+
+
+# Matches GitHub remote URLs:
+#   git@github.com:owner/repo.git
+#   https://github.com/owner/repo.git
+#   https://github.com/owner/repo
+_GIT_REMOTE_RE = re.compile(
+    r"(?:github\.com[:/])([^/]+)/([^/\s]+?)(?:\.git)?$"
+)
+
+
+def _detect_git_root() -> Path | None:
+    """Find the git repo root from the current directory."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _parse_git_remote(repo_root: Path) -> tuple[str, str]:
+    """Extract (owner, name) from the git remote origin URL."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            m = _GIT_REMOTE_RE.search(result.stdout.strip())
+            if m:
+                return m.group(1), m.group(2)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return "", ""
