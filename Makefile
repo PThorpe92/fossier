@@ -1,7 +1,10 @@
 .PHONY: install build test lint clean
 
-install:
+sync:
 	uv sync
+
+install:
+	uv tool install . 
 
 build:
 	uv build
