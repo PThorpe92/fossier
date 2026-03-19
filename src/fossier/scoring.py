@@ -1,4 +1,4 @@
-"""Composite scoring: collect signals, weight, threshold → outcome."""
+"""Composite scoring: collect signals, weight, threshold to outcome."""
 
 from __future__ import annotations
 
