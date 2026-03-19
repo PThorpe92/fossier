@@ -225,6 +225,7 @@ _DISPOSABLE_EMAIL_DOMAINS = {
     "guerrillamailblock.com", "grr.la", "dispostable.com",
 }
 
+
 def _signal_commit_email(
     api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
 ) -> SignalResult:
