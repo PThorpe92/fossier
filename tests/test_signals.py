@@ -139,12 +139,24 @@ def test_collect_signals_returns_all():
             "followers": 5,
             "following": 10,
             "type": "User",
+            "email": "user@example.com",
         },
         search_prs=3,
         prior=True,
     )
+    api.get_user_orgs.return_value = ["some-org"]
+    api.get_pr.return_value = {"title": "Add feature", "body": "Some description"}
+    api.get_repo.return_value = {"stargazers_count": 100}
+    api.get_pr_commits.return_value = [
+        {"commit": {"verification": {"verified": True}}},
+    ]
     results = collect_signals(api, "user", "o", "r")
-    assert len(results) == 8
+    assert len(results) == 13
     names = {r.name for r in results}
     assert "account_age" in names
     assert "bot_signals" in names
+    assert "commit_email" in names
+    assert "pr_description" in names
+    assert "repo_stars" in names
+    assert "org_membership" in names
+    assert "commit_verification" in names
