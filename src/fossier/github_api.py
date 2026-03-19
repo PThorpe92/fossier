@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from fossier import gh_cli
 from fossier.config import Config
 from fossier.db import Database
 
@@ -28,6 +29,15 @@ class GitHubAPI:
     def __init__(self, config: Config, db: Database):
         self.config = config
         self.db = db
+        self._gh_available = gh_cli.is_available()
+
+        # If no token configured, try `gh auth token`
+        if not self.config.github_token and self._gh_available:
+            gh_token = gh_cli.get_auth_token()
+            if gh_token:
+                logger.debug("Using token from `gh auth token`")
+                self.config.github_token = gh_token
+
         self._client = httpx.Client(
             base_url=API_BASE,
             headers=self._build_headers(),
@@ -199,6 +209,14 @@ class GitHubAPI:
             if len(data) < 100:
                 break
             page += 1
+
+        # Fallback to gh CLI if REST API returned nothing
+        if not collaborators and self._gh_available:
+            logger.debug("Falling back to `gh api` for collaborators")
+            gh_collabs = gh_cli.get_collaborators(owner, repo)
+            if gh_collabs:
+                return gh_collabs
+
         return collaborators
 
     def get_pr_files(self, owner: str, repo: str, pr_number: int) -> list[dict]:
@@ -214,9 +232,16 @@ class GitHubAPI:
             params={"q": f"author:{username} is:pr is:open", "per_page": "1"},
             pool="search",
         )
-        if not data or not isinstance(data, dict):
-            return -1
-        return data.get("total_count", -1)
+        if data and isinstance(data, dict):
+            count = data.get("total_count", -1)
+            if count >= 0:
+                return count
+
+        # Fallback to gh CLI
+        if self._gh_available:
+            logger.debug("Falling back to `gh search prs` for open PR count")
+            return gh_cli.search_open_prs(username)
+        return -1
 
     def search_prior_interaction(self, owner: str, repo: str, username: str) -> bool:
         """Check if user has any prior issues/comments on this repo."""
@@ -225,9 +250,14 @@ class GitHubAPI:
             params={"q": f"repo:{owner}/{repo} author:{username}", "per_page": "1"},
             pool="search",
         )
-        if not data or not isinstance(data, dict):
-            return False
-        return data.get("total_count", 0) > 0
+        if data and isinstance(data, dict):
+            return data.get("total_count", 0) > 0
+
+        # Fallback to gh CLI
+        if self._gh_available:
+            logger.debug("Falling back to `gh search` for prior interaction")
+            return gh_cli.search_prior_interaction(owner, repo, username)
+        return False
 
     def find_fossier_comment(
         self, owner: str, repo: str, pr_number: int
