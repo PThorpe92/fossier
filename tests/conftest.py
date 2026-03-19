@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from fossier.config import Config, ThresholdConfig, load_config
+from fossier.config import Config
 from fossier.db import Database
 from fossier.github_api import GitHubAPI
 

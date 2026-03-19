@@ -9,7 +9,7 @@ from fossier.codeowners import parse_codeowners
 from fossier.config import Config
 from fossier.db import Database
 from fossier.github_api import GitHubAPI
-from fossier.models import Contributor, TrustTier
+from fossier.models import TrustTier
 from fossier.trustdown import parse_vouched
 
 logger = logging.getLogger(__name__)

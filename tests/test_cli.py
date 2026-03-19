@@ -101,7 +101,7 @@ class TestScoreCommand:
 
     def test_score_json(self, _patch_load_config, _patch_api, capsys):
         _patch_load_config._config.output_format = "json"
-        result = main(["score", "someuser", "--format", "json"])
+        _result = main(["score", "someuser", "--format", "json"])
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert "total_score" in data
@@ -125,7 +125,7 @@ class TestTierCommand:
 
     def test_tier_json(self, _patch_load_config, _patch_api, capsys):
         _patch_load_config._config.output_format = "json"
-        result = main(["tier", "newuser", "--format", "json"])
+        _result = main(["tier", "newuser", "--format", "json"])
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert "tier" in data

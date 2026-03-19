@@ -6,9 +6,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
-from fossier.config import Config, load_config, _apply_toml, _apply_env, _apply_cli, _normalize_weights
+from fossier.config import Config, load_config, _normalize_weights
 
 
 def test_default_config():

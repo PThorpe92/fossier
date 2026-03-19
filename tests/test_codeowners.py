@@ -1,6 +1,5 @@
 """Tests for CODEOWNERS parser."""
 
-from pathlib import Path
 
 from fossier.codeowners import parse_codeowners
 

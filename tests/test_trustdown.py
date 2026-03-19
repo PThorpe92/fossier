@@ -1,8 +1,7 @@
 """Tests for VOUCHED.td parser."""
 
-from pathlib import Path
 
-from fossier.trustdown import TrustDown, add_denounce, add_vouch, parse_vouched
+from fossier.trustdown import add_denounce, add_vouch, parse_vouched
 
 
 def test_parse_empty_dir(tmp_path):

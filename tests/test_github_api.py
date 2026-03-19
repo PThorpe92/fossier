@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
 
-from fossier.config import Config, CacheTTLConfig
+from fossier.config import Config
 from fossier.db import Database
 from fossier.github_api import GitHubAPI, RateLimitError
 

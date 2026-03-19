@@ -7,12 +7,11 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
 
 from fossier.config import load_config
 from fossier.db import Database
 from fossier.github_api import GitHubAPI
-from fossier.models import Contributor, Decision, Outcome, TrustTier
+from fossier.models import Decision, Outcome, TrustTier
 from fossier.outcomes import execute_outcome, format_decision_json, format_decision_text
 from fossier.pipeline import evaluate_contributor
 from fossier.scoring import score_contributor

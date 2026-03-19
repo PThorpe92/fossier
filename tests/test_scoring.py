@@ -1,6 +1,6 @@
 """Tests for scoring algorithm."""
 
-from fossier.config import Config, ThresholdConfig
+from fossier.config import Config
 from fossier.models import Outcome, SignalResult
 from fossier.scoring import compute_score
 
