@@ -78,6 +78,7 @@ jobs:
       - uses: PThorpe92/fossier@main
         id: fossier
         with:
+          contact-url: "https://discord.gg/your-server"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Handle result
