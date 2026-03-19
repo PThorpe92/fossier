@@ -94,7 +94,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tier.set_defaults(func=_cmd_tier)
 
     # history
-    p_history = sub.add_parser("history", parents=[common], help="Score/decision history from DB")
+    p_history = sub.add_parser(
+        "history", parents=[common], help="Score/decision history from DB"
+    )
     p_history.add_argument("username", help="GitHub username")
     p_history.set_defaults(func=_cmd_history)
 
@@ -105,7 +107,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_vouch.set_defaults(func=_cmd_vouch)
 
     # denounce
-    p_denounce = sub.add_parser("denounce", parents=[common], help="Denounce user in VOUCHED.td")
+    p_denounce = sub.add_parser(
+        "denounce", parents=[common], help="Denounce user in VOUCHED.td"
+    )
     p_denounce.add_argument("username", help="GitHub username to denounce")
     p_denounce.add_argument(
         "--reason", "-m", required=True, help="Reason for denouncement"
@@ -113,7 +117,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_denounce.set_defaults(func=_cmd_denounce)
 
     # init
-    p_init = sub.add_parser("init", parents=[common], help="Initialize fossier config and files")
+    p_init = sub.add_parser(
+        "init", parents=[common], help="Initialize fossier config and files"
+    )
     p_init.set_defaults(func=_cmd_init)
 
     # scan
@@ -124,13 +130,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_db = sub.add_parser("db", parents=[common], help="Database operations")
     db_sub = p_db.add_subparsers(title="db commands")
 
-    p_migrate = db_sub.add_parser("migrate", parents=[common], help="Run schema migrations")
+    p_migrate = db_sub.add_parser(
+        "migrate", parents=[common], help="Run schema migrations"
+    )
     p_migrate.set_defaults(func=_cmd_db_migrate)
 
-    p_stats = db_sub.add_parser("stats", parents=[common], help="Show contributor/decision counts")
+    p_stats = db_sub.add_parser(
+        "stats", parents=[common], help="Show contributor/decision counts"
+    )
     p_stats.set_defaults(func=_cmd_db_stats)
 
-    p_prune = db_sub.add_parser("prune", parents=[common], help="Remove expired cache entries")
+    p_prune = db_sub.add_parser(
+        "prune", parents=[common], help="Remove expired cache entries"
+    )
     p_prune.set_defaults(func=_cmd_db_prune)
 
     return parser
@@ -375,7 +387,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(f"VOUCHED.td already exists at {td_path}")
     else:
         td_path.write_text(
-            "# VOUCHED.td — Fossier trust declarations\n"
+            "# VOUCHED.td: trust declarations\n"
             "# Lines starting with + vouch for a user\n"
             "# Lines starting with - denounce a user (reason required)\n"
             "#\n"
@@ -429,7 +441,9 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
     try:
         if not config.repo_owner or not config.repo_name:
-            logger.error("Repository not configured. Use --repo owner/repo or set up fossier.toml")
+            logger.error(
+                "Repository not configured. Use --repo owner/repo or set up fossier.toml"
+            )
             return EXIT_ERROR
 
         # Fetch open PRs
@@ -529,14 +543,16 @@ def _print_decisions_table(decisions: list[Decision]) -> None:
     rows = []
     for d in decisions:
         score = f"{d.score_result.total_score:.1f}" if d.score_result else "—"
-        rows.append([
-            f"#{d.pr_number}" if d.pr_number else "—",
-            d.contributor.username,
-            d.trust_tier.value,
-            d.outcome.value.upper(),
-            score,
-            d.reason[:40],
-        ])
+        rows.append(
+            [
+                f"#{d.pr_number}" if d.pr_number else "—",
+                d.contributor.username,
+                d.trust_tier.value,
+                d.outcome.value.upper(),
+                score,
+                d.reason[:40],
+            ]
+        )
     print(_format_table(headers, rows))
 
 

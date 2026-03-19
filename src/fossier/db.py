@@ -102,18 +102,16 @@ class Database:
             self.conn.commit()
             return
 
-        result = self.conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        )
+        result = self.conn.execute("SELECT MAX(version) FROM schema_version")
         row = result.fetchone()
         current = row[0] if row and row[0] else 0
 
         if current < CURRENT_SCHEMA_VERSION:
             # Run incremental migrations here as schema evolves
-            logger.info("Database at v%d, migrating to v%d", current, CURRENT_SCHEMA_VERSION)
+            logger.info(
+                "Database at v%d, migrating to v%d", current, CURRENT_SCHEMA_VERSION
+            )
             self.conn.commit()
-
-    # --- Contributors ---
 
     def get_contributor(
         self, repo_owner: str, repo_name: str, username: str
@@ -163,12 +161,14 @@ class Database:
         result = self.conn.execute(
             """SELECT id FROM contributors
                WHERE repo_owner = ? AND repo_name = ? AND username = ?""",
-            [contributor.repo_owner, contributor.repo_name, contributor.username.lower()],
+            [
+                contributor.repo_owner,
+                contributor.repo_name,
+                contributor.username.lower(),
+            ],
         )
         row = result.fetchone()
         return row[0]
-
-    # --- Score History ---
 
     def record_score(
         self, contributor_id: int, score: ScoreResult, pr_number: int | None = None
@@ -188,8 +188,6 @@ class Database:
         self.conn.commit()
         result = self.conn.execute("SELECT last_insert_rowid()")
         return result.fetchone()[0]
-
-    # --- Decisions ---
 
     def record_decision(
         self,
@@ -214,9 +212,7 @@ class Database:
         result = self.conn.execute("SELECT last_insert_rowid()")
         return result.fetchone()[0]
 
-    def get_history(
-        self, repo_owner: str, repo_name: str, username: str
-    ) -> list[dict]:
+    def get_history(self, repo_owner: str, repo_name: str, username: str) -> list[dict]:
         result = self.conn.execute(
             """SELECT d.decided_at, d.trust_tier, d.outcome, d.reason, d.pr_number,
                       s.total_score, s.confidence, s.signal_breakdown
@@ -241,8 +237,6 @@ class Database:
             }
             for row in rows
         ]
-
-    # --- Cache ---
 
     def prune_cache(self) -> int:
         """Remove expired cache entries. Returns number of entries removed."""
@@ -298,8 +292,6 @@ class Database:
             [cache_key, response_json, etag, expires_at],
         )
         self.conn.commit()
-
-    # --- Stats ---
 
     def get_stats(self, repo_owner: str, repo_name: str) -> dict:
         stats = {}
