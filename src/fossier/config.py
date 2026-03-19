@@ -47,6 +47,7 @@ class DenyActionConfig:
     close_pr: bool = True
     comment: bool = True
     label: str = "fossier:spam-likely"
+    contact_url: str = ""
 
 
 @dataclass
@@ -164,6 +165,8 @@ def _apply_toml(config: Config, path: Path) -> None:
                 config.deny_action.comment = bool(d["comment"])
             if "label" in d:
                 config.deny_action.label = str(d["label"])
+            if "contact_url" in d:
+                config.deny_action.contact_url = str(d["contact_url"])
         if "review" in actions:
             r = actions["review"]
             if "comment" in r:
@@ -194,6 +197,10 @@ def _apply_env(config: Config) -> None:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN", "")
     if token:
         config.github_token = token
+
+    contact_url = os.environ.get("FOSSIER_CONTACT_URL", "")
+    if contact_url:
+        config.deny_action.contact_url = contact_url
 
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if repo and "/" in repo:

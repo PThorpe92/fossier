@@ -18,7 +18,11 @@ def execute_outcome(
 ) -> None:
     """Execute the decided outcome actions on GitHub."""
     if config.dry_run:
-        logger.info("[DRY RUN] Would execute %s for %s", decision.outcome.value, decision.contributor.username)
+        logger.info(
+            "[DRY RUN] Would execute %s for %s",
+            decision.outcome.value,
+            decision.contributor.username,
+        )
         return
 
     if decision.pr_number is None:
@@ -38,11 +42,15 @@ def execute_outcome(
 
 
 def _execute_deny(
-    owner: str, repo: str, pr: int,
-    decision: Decision, config: Config, api: GitHubAPI,
+    owner: str,
+    repo: str,
+    pr: int,
+    decision: Decision,
+    config: Config,
+    api: GitHubAPI,
 ) -> None:
     if config.deny_action.comment:
-        body = _format_deny_comment(decision)
+        body = _format_deny_comment(decision, config.deny_action.contact_url)
         api.post_or_update_comment(owner, repo, pr, body)
 
     if config.deny_action.label:
@@ -53,8 +61,12 @@ def _execute_deny(
 
 
 def _execute_review(
-    owner: str, repo: str, pr: int,
-    decision: Decision, config: Config, api: GitHubAPI,
+    owner: str,
+    repo: str,
+    pr: int,
+    decision: Decision,
+    config: Config,
+    api: GitHubAPI,
 ) -> None:
     if config.review_action.comment:
         body = _format_review_comment(decision)
@@ -65,14 +77,20 @@ def _execute_review(
 
 
 def _execute_allow(
-    owner: str, repo: str, pr: int,
-    decision: Decision, config: Config, api: GitHubAPI,
+    owner: str,
+    repo: str,
+    pr: int,
+    decision: Decision,
+    config: Config,
+    api: GitHubAPI,
 ) -> None:
     # Allow is silent by default — no comment or label needed
-    logger.debug("PR #%d allowed for %s (%s)", pr, decision.contributor.username, decision.reason)
+    logger.debug(
+        "PR #%d allowed for %s (%s)", pr, decision.contributor.username, decision.reason
+    )
 
 
-def _format_deny_comment(decision: Decision) -> str:
+def _format_deny_comment(decision: Decision, contact_url: str = "") -> str:
     lines = [
         "## Fossier: PR Auto-Closed",
         "",
@@ -84,12 +102,21 @@ def _format_deny_comment(decision: Decision) -> str:
     if decision.score_result:
         lines.extend(_format_score_breakdown(decision.score_result))
 
-    lines.extend([
-        "",
-        "### Appeal",
-        "If you believe this is a mistake, please open an issue to request manual review. "
-        "A maintainer can vouch for you by adding your username to the `VOUCHED.td` file.",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Appeal",
+            "If you believe this is a mistake, please open an issue to request manual review. "
+            "A maintainer can vouch for you by adding your username to the `VOUCHED.td` file.",
+        ]
+    )
+    if contact_url:
+        lines.extend(
+            [
+                "",
+                f"You can also reach the maintainers at: {contact_url} to appeal this decision",
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -123,7 +150,11 @@ def _format_score_breakdown(score: ScoreResult) -> list[str]:
 
     for s in score.signals:
         status = f"{s.normalized:.2f}" if s.success else f"FAILED ({s.error})"
-        raw = s.raw_value if not isinstance(s.raw_value, str) or len(s.raw_value) < 40 else "..."
+        raw = (
+            s.raw_value
+            if not isinstance(s.raw_value, str) or len(s.raw_value) < 40
+            else "..."
+        )
         lines.append(f"| {s.name} | {raw} | {status} | {s.weight:.2f} |")
 
     return lines
@@ -139,8 +170,10 @@ def format_decision_text(decision: Decision) -> str:
     ]
 
     if decision.score_result:
-        lines.append(f"Score:    {decision.score_result.total_score}/100 "
-                     f"(confidence: {decision.score_result.confidence:.0%})")
+        lines.append(
+            f"Score:    {decision.score_result.total_score}/100 "
+            f"(confidence: {decision.score_result.confidence:.0%})"
+        )
         lines.append("")
         lines.append("Signals:")
         for s in decision.score_result.signals:

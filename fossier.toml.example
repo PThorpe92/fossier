@@ -31,6 +31,7 @@ commit_verification = 0.08
 close_pr = true
 comment = true
 label = "fossier:spam-likely"
+# contact_url = "https://discord.gg/your-server"  # Where contributors can appeal
 
 [actions.review]
 comment = true

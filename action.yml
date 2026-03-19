@@ -20,6 +20,10 @@ inputs:
     description: "Fail the check run when outcome is DENY (for use as required status check)"
     required: false
     default: "false"
+  contact-url:
+    description: "URL where contributors can reach maintainers to appeal (e.g. Discord, Matrix, email)"
+    required: false
+    default: ""
 
 outputs:
   outcome:
@@ -61,6 +65,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         FOSSIER_FAIL_ON_DENY: ${{ inputs.fail-on-deny }}
+        FOSSIER_CONTACT_URL: ${{ inputs.contact-url }}
       run: |
         python -m fossier.action
         exit_code=$?
