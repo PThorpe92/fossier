@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -71,7 +72,7 @@ class GitHubAPI:
                 raise RateLimitError(reset)
 
     def get(
-        self, path: str, params: dict | None = None, pool: str = "core"
+        self, path: str, params: dict | None = None, pool: str = "core", *, _retries: int = 0
     ) -> dict | list | None:
         """GET request with caching, ETag support, and rate limiting."""
         cache_key = f"GET:{path}:{json.dumps(params or {}, sort_keys=True)}"
@@ -109,14 +110,21 @@ class GitHubAPI:
             return cached["data"]
 
         if response.status_code == 403:
+            if _retries >= 2:
+                logger.error("Rate limited on %s, max retries exhausted", path)
+                return None
             reset = self._rate_reset.get(pool, 0)
             wait = reset - time.time()
-            if wait > 0 and wait < 120:
-                logger.warning("Rate limited, waiting %.0fs", wait)
-                time.sleep(wait + 1)
-                return self.get(path, params, pool)
-            logger.error("Rate limited on %s, cannot retry", path)
-            return None
+            if wait <= 0:
+                wait = 0
+            # Exponential backoff with jitter: 1s, 2s base + random jitter
+            backoff = min(wait, (2 ** _retries) + random.uniform(0, 1))
+            if backoff > 120:
+                logger.error("Rate limited on %s, wait too long (%.0fs)", path, backoff)
+                return None
+            logger.warning("Rate limited on %s, retrying in %.1fs (attempt %d/2)", path, backoff, _retries + 1)
+            time.sleep(backoff)
+            return self.get(path, params, pool, _retries=_retries + 1)
 
         if response.status_code == 404:
             logger.debug("404 for %s", path)
@@ -178,10 +186,20 @@ class GitHubAPI:
         return self.get(f"/users/{username}")
 
     def get_collaborators(self, owner: str, repo: str) -> list[str]:
-        data = self.get(f"/repos/{owner}/{repo}/collaborators")
-        if not data or not isinstance(data, list):
-            return []
-        return [c["login"].lower() for c in data if "login" in c]
+        collaborators: list[str] = []
+        page = 1
+        while True:
+            data = self.get(
+                f"/repos/{owner}/{repo}/collaborators",
+                params={"per_page": "100", "page": str(page)},
+            )
+            if not data or not isinstance(data, list):
+                break
+            collaborators.extend(c["login"].lower() for c in data if "login" in c)
+            if len(data) < 100:
+                break
+            page += 1
+        return collaborators
 
     def get_pr_files(self, owner: str, repo: str, pr_number: int) -> list[dict]:
         data = self.get(f"/repos/{owner}/{repo}/pulls/{pr_number}/files")
@@ -211,6 +229,30 @@ class GitHubAPI:
             return False
         return data.get("total_count", 0) > 0
 
+    def find_fossier_comment(
+        self, owner: str, repo: str, pr_number: int
+    ) -> int | None:
+        """Find an existing fossier comment on a PR. Returns comment ID or None."""
+        data = self.get(
+            f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
+            params={"per_page": "100"},
+        )
+        if not data or not isinstance(data, list):
+            return None
+        for comment in data:
+            body = comment.get("body", "")
+            if body.startswith("## Fossier:"):
+                return comment["id"]
+        return None
+
+    def update_comment(
+        self, owner: str, repo: str, comment_id: int, body: str
+    ) -> dict | None:
+        return self.patch(
+            f"/repos/{owner}/{repo}/issues/comments/{comment_id}",
+            {"body": body},
+        )
+
     def post_comment(
         self, owner: str, repo: str, pr_number: int, body: str
     ) -> dict | None:
@@ -218,6 +260,16 @@ class GitHubAPI:
             f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
             {"body": body},
         )
+
+    def post_or_update_comment(
+        self, owner: str, repo: str, pr_number: int, body: str
+    ) -> dict | None:
+        """Post a comment or update an existing fossier comment (idempotent)."""
+        existing_id = self.find_fossier_comment(owner, repo, pr_number)
+        if existing_id:
+            logger.debug("Updating existing fossier comment %d on PR #%d", existing_id, pr_number)
+            return self.update_comment(owner, repo, existing_id, body)
+        return self.post_comment(owner, repo, pr_number, body)
 
     def add_labels(
         self, owner: str, repo: str, pr_number: int, labels: list[str]
@@ -232,3 +284,47 @@ class GitHubAPI:
             f"/repos/{owner}/{repo}/pulls/{pr_number}",
             {"state": "closed"},
         )
+
+    def validate_token(self) -> None:
+        """Check token validity and warn about missing scopes."""
+        try:
+            response = self._client.get("/rate_limit")
+        except httpx.HTTPError as e:
+            logger.warning("Could not validate token: %s", e)
+            return
+
+        if response.status_code == 401:
+            logger.warning("GitHub token is invalid or expired")
+            return
+
+        if response.status_code != 200:
+            return
+
+        # Check X-OAuth-Scopes header for needed permissions
+        scopes = response.headers.get("x-oauth-scopes", "")
+        scope_list = [s.strip() for s in scopes.split(",") if s.strip()]
+
+        if not scope_list:
+            # Fine-grained tokens don't report scopes this way
+            logger.debug("No OAuth scopes reported (fine-grained token?)")
+            return
+
+        if "public_repo" not in scope_list and "repo" not in scope_list:
+            logger.warning("Token may be missing 'public_repo' scope — some API calls may fail")
+        if "read:org" not in scope_list:
+            logger.warning("Token missing 'read:org' scope — org membership signal will be limited")
+
+    def get_user_orgs(self, username: str) -> list[str]:
+        """Get public organizations a user belongs to."""
+        data = self.get(f"/users/{username}/orgs")
+        if not data or not isinstance(data, list):
+            return []
+        return [org.get("login", "").lower() for org in data if "login" in org]
+
+    def get_pr(self, owner: str, repo: str, pr_number: int) -> dict | None:
+        """Get PR details including title and body."""
+        return self.get(f"/repos/{owner}/{repo}/pulls/{pr_number}")
+
+    def get_repo(self, owner: str, repo: str) -> dict | None:
+        """Get repository details."""
+        return self.get(f"/repos/{owner}/{repo}")
