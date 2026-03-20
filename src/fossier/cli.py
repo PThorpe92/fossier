@@ -37,6 +37,10 @@ def main(argv: list[str] | None = None) -> int:
         level=level,
         format="%(levelname)s: %(message)s",
     )
+    # Silence httpx request logging unless verbose
+    if not getattr(args, "verbose", False):
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     if not hasattr(args, "func"):
         parser.print_help()

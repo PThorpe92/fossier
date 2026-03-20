@@ -76,7 +76,7 @@ class Database:
 
     def close(self) -> None:
         if self._conn:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", [])
             self._conn.close()
             self._conn = None
 
