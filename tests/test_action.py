@@ -8,30 +8,39 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fossier.action import action_main
+from fossier.action import GithubAction
+
+
+def action_main() -> int:
+    action = GithubAction()
+    return action.run()
 
 
 @pytest.fixture
 def event_file(tmp_path):
     """Create a PR event payload file."""
+
     def _make(payload: dict) -> str:
         path = tmp_path / "event.json"
         path.write_text(json.dumps(payload))
         return str(path)
+
     return _make
 
 
 @pytest.fixture
 def pr_event(event_file):
     """Standard PR opened event."""
-    return event_file({
-        "pull_request": {
-            "number": 42,
-            "user": {"login": "testuser"},
-            "title": "Add feature",
-            "body": "Description here",
+    return event_file(
+        {
+            "pull_request": {
+                "number": 42,
+                "user": {"login": "testuser"},
+                "title": "Add feature",
+                "body": "Description here",
+            }
         }
-    })
+    )
 
 
 @pytest.fixture

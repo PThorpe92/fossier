@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from fossier.config import Config
 from fossier.db import Database
 from fossier.models import Contributor, TrustTier
-from fossier.trust import resolve_tier
+from fossier.trust import TrustResolver
 
 
 def test_blocked_from_config(tmp_path):
@@ -17,8 +17,9 @@ def test_blocked_from_config(tmp_path):
     )
     db = MagicMock(spec=Database)
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("spammer", config, db, api)
+    tier, reason = resolver.resolve_tier("spammer")
     assert tier == TrustTier.BLOCKED
     assert "config" in reason.lower()
 
@@ -28,8 +29,9 @@ def test_blocked_from_vouched_td(tmp_path):
     config = Config(repo_owner="owner", repo_name="repo", repo_root=tmp_path)
     db = MagicMock(spec=Database)
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("baduser", config, db, api)
+    tier, reason = resolver.resolve_tier("baduser")
     assert tier == TrustTier.BLOCKED
     assert "denounced" in reason.lower()
 
@@ -43,8 +45,9 @@ def test_trusted_from_config(tmp_path):
     )
     db = MagicMock(spec=Database)
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("maintainer", config, db, api)
+    tier, reason = resolver.resolve_tier("maintainer")
     assert tier == TrustTier.TRUSTED
 
 
@@ -53,8 +56,9 @@ def test_trusted_from_vouched_td(tmp_path):
     config = Config(repo_owner="owner", repo_name="repo", repo_root=tmp_path)
     db = MagicMock(spec=Database)
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("trusteduser", config, db, api)
+    tier, reason = resolver.resolve_tier("trusteduser")
     assert tier == TrustTier.TRUSTED
 
 
@@ -63,8 +67,9 @@ def test_trusted_from_codeowners(tmp_path):
     config = Config(repo_owner="owner", repo_name="repo", repo_root=tmp_path)
     db = MagicMock(spec=Database)
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("codeowner", config, db, api)
+    tier, reason = resolver.resolve_tier("codeowner")
     assert tier == TrustTier.TRUSTED
 
 
@@ -73,8 +78,9 @@ def test_trusted_from_collaborators_api(tmp_path):
     db = MagicMock(spec=Database)
     api = MagicMock()
     api.get_collaborators.return_value = ["collab-user"]
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("collab-user", config, db, api)
+    tier, reason = resolver.resolve_tier("collab-user")
     assert tier == TrustTier.TRUSTED
     assert "collaborator" in reason.lower()
 
@@ -90,8 +96,9 @@ def test_known_from_db(tmp_path):
     )
     api = MagicMock()
     api.get_collaborators.return_value = []
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("knownuser", config, db, api)
+    tier, reason = resolver.resolve_tier("knownuser")
     assert tier == TrustTier.KNOWN
 
 
@@ -100,9 +107,10 @@ def test_unknown_fallthrough(tmp_path):
     db = MagicMock(spec=Database)
     db.get_contributor.return_value = None
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
     api.get_collaborators.return_value = []
 
-    tier, reason = resolve_tier("newuser", config, db, api)
+    tier, reason = resolver.resolve_tier("newuser")
     assert tier == TrustTier.UNKNOWN
 
 
@@ -118,6 +126,7 @@ def test_blocked_wins_over_trusted(tmp_path):
     )
     db = MagicMock(spec=Database)
     api = MagicMock()
+    resolver = TrustResolver(config, db, api)
 
-    tier, reason = resolve_tier("compromised", config, db, api)
+    tier, reason = resolver.resolve_tier("compromised")
     assert tier == TrustTier.BLOCKED
