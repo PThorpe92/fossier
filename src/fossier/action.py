@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def action_main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARN,
         format="%(levelname)s: %(message)s",
     )
 
@@ -56,13 +56,17 @@ def action_main() -> int:
         outcome = decision.outcome
         _set_output("outcome", outcome.value)
         _set_output("tier", decision.trust_tier.value)
-        score_str = str(decision.score_result.total_score) if decision.score_result else ""
+        score_str = (
+            str(decision.score_result.total_score) if decision.score_result else ""
+        )
         _set_output("score", score_str)
         _set_output("details", json.dumps(format_decision_json(decision)))
 
         logger.info(
             "Decision: %s (%s) — %s",
-            outcome.value, decision.trust_tier.value, decision.reason,
+            outcome.value,
+            decision.trust_tier.value,
+            decision.reason,
         )
 
         return {Outcome.ALLOW: 0, Outcome.DENY: 1, Outcome.REVIEW: 2}[outcome]
