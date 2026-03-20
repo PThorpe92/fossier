@@ -89,7 +89,9 @@ reject_ai_authored = true
 def test_load_config_github_dir(tmp_path):
     github_dir = tmp_path / ".github"
     github_dir.mkdir()
-    (github_dir / "fossier.toml").write_text('[repo]\nowner = "ghorg"\nname = "ghrepo"\n')
+    (github_dir / "fossier.toml").write_text(
+        '[repo]\nowner = "ghorg"\nname = "ghrepo"\n'
+    )
 
     with patch("fossier.config._detect_git_root", return_value=tmp_path):
         config = load_config(repo_root=tmp_path)
@@ -116,7 +118,11 @@ def test_env_overrides(tmp_path):
 
 def test_env_gh_token(tmp_path):
     env = {"GH_TOKEN": "gh-token-456"}
-    cleaned = {k: v for k, v in os.environ.items() if k not in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_REPOSITORY")}
+    cleaned = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_REPOSITORY")
+    }
     cleaned.update(env)
     with (
         patch("fossier.config._detect_git_root", return_value=tmp_path),
@@ -150,7 +156,9 @@ def test_cli_overrides(tmp_path):
 
 def test_toml_overridden_by_env(tmp_path):
     """Env vars should take precedence over TOML for token."""
-    (tmp_path / "fossier.toml").write_text('[repo]\nowner = "tomlowner"\nname = "tomlrepo"\n')
+    (tmp_path / "fossier.toml").write_text(
+        '[repo]\nowner = "tomlowner"\nname = "tomlrepo"\n'
+    )
 
     env = {"GITHUB_TOKEN": "env-token"}
     with (
@@ -160,7 +168,9 @@ def test_toml_overridden_by_env(tmp_path):
         config = load_config(repo_root=tmp_path)
 
     assert config.github_token == "env-token"
-    assert config.repo_owner == "tomlowner"  # TOML not overridden by env since it was set
+    assert (
+        config.repo_owner == "tomlowner"
+    )  # TOML not overridden by env since it was set
 
 
 def test_normalize_weights():
@@ -214,7 +224,7 @@ comment = true
 def test_load_registry_from_toml(tmp_path):
     toml_content = """
 [registry]
-url = "https://registry.fossier.dev"
+url = "https://registry.fossier.io"
 api_key = "test-key-123"
 report_denials = true
 check_before_scoring = true
@@ -222,7 +232,7 @@ check_before_scoring = true
     (tmp_path / "fossier.toml").write_text(toml_content)
     with patch("fossier.config._detect_git_root", return_value=tmp_path):
         config = load_config(repo_root=tmp_path)
-    assert config.registry_url == "https://registry.fossier.dev"
+    assert config.registry_url == "https://registry.fossier.io"
     assert config.registry_api_key == "test-key-123"
     assert config.registry_report_denials is True
     assert config.registry_check_before_scoring is True
