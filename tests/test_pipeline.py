@@ -111,3 +111,79 @@ def test_username_normalized_to_lowercase(config, db, api):
     decision = evaluate_contributor("ALICE", config, db, api)
     assert decision.contributor.username == "alice"
     assert decision.outcome == Outcome.ALLOW
+
+
+def test_reject_ai_authored_claude(config, db, api):
+    config.reject_ai_authored = True
+    api.get_pr_commits.return_value = [
+        {
+            "sha": "abc123",
+            "commit": {
+                "message": (
+                    "Add feature\n\n"
+                    "Co-Authored-By: Claude <noreply@anthropic.com>"
+                ),
+                "verification": {"verified": False},
+            },
+        }
+    ]
+    decision = evaluate_contributor("newuser", config, db, api, pr_number=42)
+    assert decision.outcome == Outcome.DENY
+    assert "ai co-authored" in decision.reason.lower()
+    assert "claude" in decision.reason.lower()
+
+
+def test_reject_ai_authored_copilot(config, db, api):
+    config.reject_ai_authored = True
+    api.get_pr_commits.return_value = [
+        {
+            "sha": "def456",
+            "commit": {
+                "message": (
+                    "Fix bug\n\n"
+                    "Co-authored-by: GitHub Copilot <copilot@github.com>"
+                ),
+                "verification": {"verified": False},
+            },
+        }
+    ]
+    decision = evaluate_contributor("someuser", config, db, api, pr_number=10)
+    assert decision.outcome == Outcome.DENY
+    assert "copilot" in decision.reason.lower()
+
+
+def test_reject_ai_authored_disabled_by_default(config, db, api):
+    """When reject_ai_authored is False (default), AI commits are allowed through."""
+    assert config.reject_ai_authored is False
+    api.get_pr_commits.return_value = [
+        {
+            "sha": "abc123",
+            "commit": {
+                "message": (
+                    "Add feature\n\n"
+                    "Co-Authored-By: Claude <noreply@anthropic.com>"
+                ),
+                "verification": {"verified": False},
+            },
+        }
+    ]
+    decision = evaluate_contributor("newuser", config, db, api, pr_number=42)
+    # Should go through normal scoring, not auto-deny
+    assert decision.outcome != Outcome.DENY or "ai co-authored" not in decision.reason.lower()
+
+
+def test_reject_ai_authored_clean_commits_pass(config, db, api):
+    """Normal commits should not trigger the AI reject."""
+    config.reject_ai_authored = True
+    api.get_pr_commits.return_value = [
+        {
+            "sha": "abc123",
+            "commit": {
+                "message": "Add feature\n\nCo-Authored-By: Alice <alice@example.com>",
+                "verification": {"verified": False},
+            },
+        }
+    ]
+    decision = evaluate_contributor("newuser", config, db, api, pr_number=42)
+    # Should not be denied for AI authorship
+    assert "ai co-authored" not in decision.reason.lower()
