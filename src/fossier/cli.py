@@ -124,6 +124,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # scan
     p_scan = sub.add_parser("scan", parents=[common], help="Bulk-evaluate all open PRs")
+    p_scan.add_argument(
+        "--execute", action="store_true",
+        help="Execute outcome actions (comment/label/close) for each PR",
+    )
     p_scan.set_defaults(func=_cmd_scan)
 
     # db subcommands
@@ -164,6 +168,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
     db = Database(config.db_path)
     db.connect()
     api = GitHubAPI(config, db)
+    api.validate_token()
 
     try:
         decision = evaluate_contributor(
@@ -407,17 +412,17 @@ def _cmd_init(args: argparse.Namespace) -> int:
         workflow_path.write_text(
             "name: Fossier PR Check\n\n"
             "on:\n"
-            "  pull_request:\n"
+            "  pull_request_target:\n"
             "    types: [opened, synchronize]\n\n"
+            "permissions:\n"
+            "  pull-requests: write\n"
+            "  issues: write\n\n"
             "jobs:\n"
             "  check:\n"
             "    runs-on: ubuntu-latest\n"
-            "    permissions:\n"
-            "      pull-requests: write\n"
-            "      issues: write\n"
             "    steps:\n"
             "      - uses: actions/checkout@v4\n"
-            "      - uses: ./\n"
+            "      - uses: PThorpe92/fossier@main\n"
             "        with:\n"
             "          github-token: ${{ secrets.GITHUB_TOKEN }}\n"
         )
@@ -438,6 +443,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     db = Database(config.db_path)
     db.connect()
     api = GitHubAPI(config, db)
+    should_execute = getattr(args, "execute", False)
 
     try:
         if not config.repo_owner or not config.repo_name:
@@ -446,22 +452,35 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             )
             return EXIT_ERROR
 
-        # Fetch open PRs
-        data = api.get(
-            f"/repos/{config.repo_owner}/{config.repo_name}/pulls",
-            params={"state": "open", "per_page": "100"},
-        )
-        if not data or not isinstance(data, list):
+        # Fetch all open PRs (paginated)
+        all_prs: list[dict] = []
+        page = 1
+        while True:
+            data = api.get(
+                f"/repos/{config.repo_owner}/{config.repo_name}/pulls",
+                params={"state": "open", "per_page": "100", "page": str(page)},
+            )
+            if not data or not isinstance(data, list):
+                break
+            all_prs.extend(data)
+            if len(data) < 100:
+                break
+            page += 1
+
+        if not all_prs:
             print("No open PRs found")
             return EXIT_ALLOW
 
         results = []
-        for pr_data in data:
+        for pr_data in all_prs:
             pr_number = pr_data["number"]
             username = pr_data["user"]["login"].lower()
 
             decision = evaluate_contributor(username, config, db, api, pr_number)
             results.append(decision)
+
+            if should_execute:
+                execute_outcome(decision, config, api)
 
             if config.output_format == "text":
                 outcome_str = _colorize_outcome(decision.outcome)

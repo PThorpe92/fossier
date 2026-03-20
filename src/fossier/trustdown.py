@@ -79,6 +79,10 @@ def add_denounce(repo_root: Path, username: str, reason: str) -> Path:
     """Add a denounce entry to VOUCHED.td, creating it if needed. Returns path used."""
     path = _get_or_create_path(repo_root)
     content = path.read_text() if path.exists() else ""
+    # Check if already denounced (avoid duplicates)
+    prefix = f"- {username.lower()}"
+    if any(line.strip().startswith(prefix) for line in content.splitlines()):
+        return path
     entry = f"- {username.lower()}  {reason}\n"
     with open(path, "a") as f:
         if content and not content.endswith("\n"):

@@ -10,7 +10,7 @@ from fossier.config import Config
 from fossier.db import Database
 from fossier.github_api import GitHubAPI
 from fossier.models import TrustTier
-from fossier.trustdown import parse_vouched
+from fossier.trustdown import TrustDown, parse_vouched
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +25,16 @@ def resolve_tier(
     username_lower = username.lower()
     repo_root = config.repo_root
 
+    # Parse VOUCHED.td once for both blocked and trusted checks
+    td = parse_vouched(repo_root)
+
     # 1. BLOCKED - checked first so denounced users can't be elevated
-    tier, reason = _check_blocked(username_lower, config, repo_root)
+    tier, reason = _check_blocked(username_lower, config, td)
     if tier:
         return tier, reason
 
     # 2. TRUSTED
-    tier, reason = _check_trusted(username_lower, config, repo_root, api)
+    tier, reason = _check_trusted(username_lower, config, repo_root, api, td)
     if tier:
         return tier, reason
 
@@ -45,14 +48,13 @@ def resolve_tier(
 
 
 def _check_blocked(
-    username: str, config: Config, repo_root: Path
+    username: str, config: Config, td: TrustDown
 ) -> tuple[TrustTier | None, str]:
     # Config blocked list
     if username in config.blocked_users:
         return TrustTier.BLOCKED, "Listed in config blocked_users"
 
     # VOUCHED.td denouncements
-    td = parse_vouched(repo_root)
     if username in td.denounced:
         reason = td.denounced[username]
         return TrustTier.BLOCKED, f"Denounced in VOUCHED.td: {reason}"
@@ -61,14 +63,13 @@ def _check_blocked(
 
 
 def _check_trusted(
-    username: str, config: Config, repo_root: Path, api: GitHubAPI
+    username: str, config: Config, repo_root: Path, api: GitHubAPI, td: TrustDown
 ) -> tuple[TrustTier | None, str]:
     # Config trusted list
     if username in config.trusted_users:
         return TrustTier.TRUSTED, "Listed in config trusted_users"
 
     # VOUCHED.td vouched
-    td = parse_vouched(repo_root)
     if username in td.vouched:
         return TrustTier.TRUSTED, "Vouched in VOUCHED.td"
 

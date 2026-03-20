@@ -67,8 +67,10 @@ runs:
         FOSSIER_FAIL_ON_DENY: ${{ inputs.fail-on-deny }}
         FOSSIER_CONTACT_URL: ${{ inputs.contact-url }}
       run: |
+        set +e
         python -m fossier.action
         exit_code=$?
+        set -e
         if [ "$FOSSIER_FAIL_ON_DENY" = "true" ] && [ "$exit_code" = "1" ]; then
           echo "::error::Fossier denied this PR"
           exit 1

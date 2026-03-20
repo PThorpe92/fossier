@@ -43,6 +43,9 @@ def collect_signals(
     """Collect all signals for a user. Returns list of SignalResult."""
     weights = weights or {}
 
+    # Fetch user profile once — used by multiple signals
+    user_profile = api.get_user(username)
+
     collectors = [
         ("account_age", _signal_account_age),
         ("public_repos", _signal_public_repos),
@@ -63,7 +66,10 @@ def collect_signals(
     for name, collector in collectors:
         weight = weights.get(name, 0.1)
         try:
-            result = collector(api, username, repo_owner, repo_name, pr_number)
+            result = collector(
+                api, username, repo_owner, repo_name, pr_number,
+                user_profile=user_profile,
+            )
             result.weight = weight
             results.append(result)
         except Exception as e:
@@ -81,9 +87,10 @@ def collect_signals(
 
 
 def _signal_account_age(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
-    user = api.get_user(username)
+    user = user_profile
     if not user or "created_at" not in user:
         return SignalResult("account_age", 0, 0.0, 0, success=False, error="User not found")
 
@@ -94,9 +101,10 @@ def _signal_account_age(
 
 
 def _signal_public_repos(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
-    user = api.get_user(username)
+    user = user_profile
     if not user:
         return SignalResult("public_repos", 0, 0.0, 0, success=False, error="User not found")
 
@@ -106,11 +114,12 @@ def _signal_public_repos(
 
 
 def _signal_contribution_history(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     # GitHub doesn't expose contribution count via REST API directly.
     # Use public_repos + followers as a proxy, or just mark as unavailable.
-    user = api.get_user(username)
+    user = user_profile
     if not user:
         return SignalResult("contribution_history", 0, 0.0, 0, success=False, error="User not found")
 
@@ -121,9 +130,10 @@ def _signal_contribution_history(
 
 
 def _signal_follower_ratio(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
-    user = api.get_user(username)
+    user = user_profile
     if not user:
         return SignalResult("follower_ratio", 0, 0.0, 0, success=False, error="User not found")
 
@@ -135,9 +145,10 @@ def _signal_follower_ratio(
 
 
 def _signal_bot(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
-    user = api.get_user(username)
+    user = user_profile
     if not user:
         return SignalResult("bot_signals", 0, 0.5, 0, success=False, error="User not found")
 
@@ -152,18 +163,20 @@ def _signal_bot(
 
 
 def _signal_open_prs(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     count = api.search_open_prs(username)
     if count < 0:
-        return SignalResult("open_prs_elsewhere", 0, 0.0, 0, success=False, error="Search failed")
+        return SignalResult("open_prs_elsewhere", 0, 0.5, 0, success=False, error="Search failed")
 
     normalized = max(1.0 - count / 15, 0.0)
     return SignalResult("open_prs_elsewhere", count, normalized, 0)
 
 
 def _signal_prior_interaction(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     has_interaction = api.search_prior_interaction(owner, repo, username)
     normalized = 1.0 if has_interaction else 0.0
@@ -171,7 +184,8 @@ def _signal_prior_interaction(
 
 
 def _signal_pr_content(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     if pr is None:
         return SignalResult("pr_content", "no_pr", 0.5, 0, success=False, error="No PR number")
@@ -227,10 +241,11 @@ _DISPOSABLE_EMAIL_DOMAINS = {
 
 
 def _signal_commit_email(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     """Check if commit email matches GitHub profile. Disposable domains are suspicious."""
-    user = api.get_user(username)
+    user = user_profile
     if not user:
         return SignalResult("commit_email", 0, 0.0, 0, success=False, error="User not found")
 
@@ -249,7 +264,8 @@ def _signal_commit_email(
 
 
 def _signal_pr_description(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     """Analyze PR title/body. Empty descriptions and keyword stuffing are spam signals."""
     if pr is None:
@@ -289,7 +305,8 @@ def _signal_pr_description(
 
 
 def _signal_repo_stars(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     """High-star repos attract more spam. Returns higher scrutiny for popular repos."""
     repo_data = api.get_repo(owner, repo)
@@ -304,7 +321,8 @@ def _signal_repo_stars(
 
 
 def _signal_org_membership(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     """Users belonging to GitHub orgs are less likely to be spam."""
     orgs = api.get_user_orgs(username)
@@ -318,7 +336,8 @@ def _signal_org_membership(
 
 
 def _signal_commit_verification(
-    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
 ) -> SignalResult:
     """Check if PR commits are GPG/SSH signed. Signed commits indicate higher trust."""
     if pr is None:

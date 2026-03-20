@@ -219,10 +219,20 @@ class GitHubAPI:
         return collaborators
 
     def get_pr_files(self, owner: str, repo: str, pr_number: int) -> list[dict]:
-        data = self.get(f"/repos/{owner}/{repo}/pulls/{pr_number}/files")
-        if not data or not isinstance(data, list):
-            return []
-        return data
+        files: list[dict] = []
+        page = 1
+        while True:
+            data = self.get(
+                f"/repos/{owner}/{repo}/pulls/{pr_number}/files",
+                params={"per_page": "100", "page": str(page)},
+            )
+            if not data or not isinstance(data, list):
+                break
+            files.extend(data)
+            if len(data) < 100:
+                break
+            page += 1
+        return files
 
     def search_open_prs(self, username: str) -> int:
         """Count of open PRs by user across all repos."""

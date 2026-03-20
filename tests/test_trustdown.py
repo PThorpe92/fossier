@@ -77,3 +77,10 @@ def test_add_vouch_idempotent(tmp_path):
     add_vouch(tmp_path, "alice")
     content = (tmp_path / "VOUCHED.td").read_text()
     assert content.count("alice") == 1
+
+
+def test_add_denounce_idempotent(tmp_path):
+    add_denounce(tmp_path, "baduser", "spam")
+    add_denounce(tmp_path, "baduser", "more spam")
+    content = (tmp_path / "VOUCHED.td").read_text()
+    assert content.count("baduser") == 1
