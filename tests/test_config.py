@@ -22,6 +22,13 @@ def test_default_config():
     assert config.output_format == "text"
     assert config.bot_policy == "score"
     assert config.reject_ai_authored is False
+    assert config.trusted_orgs == set()
+    assert config.allow_action.label == ""
+    assert config.allow_action.comment is False
+    assert config.registry_url == ""
+    assert config.registry_api_key == ""
+    assert config.registry_report_denials is False
+    assert config.registry_check_before_scoring is False
 
 
 def test_load_config_from_toml(tmp_path):
@@ -177,3 +184,59 @@ def test_git_root_detection(tmp_path):
     with patch("fossier.config._detect_git_root", return_value=None):
         config = load_config()
     assert config.repo_root == Path(".")
+
+
+def test_load_trusted_orgs_from_toml(tmp_path):
+    toml_content = """
+[trust]
+trusted_orgs = ["MyCompany", "OpenSource-Foundation"]
+"""
+    (tmp_path / "fossier.toml").write_text(toml_content)
+    with patch("fossier.config._detect_git_root", return_value=tmp_path):
+        config = load_config(repo_root=tmp_path)
+    assert "mycompany" in config.trusted_orgs
+    assert "opensource-foundation" in config.trusted_orgs
+
+
+def test_load_allow_action_from_toml(tmp_path):
+    toml_content = """
+[actions.allow]
+label = "fossier:verified"
+comment = true
+"""
+    (tmp_path / "fossier.toml").write_text(toml_content)
+    with patch("fossier.config._detect_git_root", return_value=tmp_path):
+        config = load_config(repo_root=tmp_path)
+    assert config.allow_action.label == "fossier:verified"
+    assert config.allow_action.comment is True
+
+
+def test_load_registry_from_toml(tmp_path):
+    toml_content = """
+[registry]
+url = "https://registry.fossier.dev"
+api_key = "test-key-123"
+report_denials = true
+check_before_scoring = true
+"""
+    (tmp_path / "fossier.toml").write_text(toml_content)
+    with patch("fossier.config._detect_git_root", return_value=tmp_path):
+        config = load_config(repo_root=tmp_path)
+    assert config.registry_url == "https://registry.fossier.dev"
+    assert config.registry_api_key == "test-key-123"
+    assert config.registry_report_denials is True
+    assert config.registry_check_before_scoring is True
+
+
+def test_registry_env_overrides(tmp_path):
+    env = {
+        "FOSSIER_REGISTRY_URL": "https://env-registry.example.com",
+        "FOSSIER_REGISTRY_API_KEY": "env-key-456",
+    }
+    with (
+        patch("fossier.config._detect_git_root", return_value=tmp_path),
+        patch.dict(os.environ, env),
+    ):
+        config = load_config(repo_root=tmp_path)
+    assert config.registry_url == "https://env-registry.example.com"
+    assert config.registry_api_key == "env-key-456"

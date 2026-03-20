@@ -94,14 +94,48 @@ class TestExecuteOutcome:
         api.add_labels.assert_called_once()
         api.close_pr.assert_not_called()
 
-    def test_allow_is_silent(self):
+    def test_allow_is_silent_for_trusted(self):
+        """TRUSTED tier ALLOW should not label or comment (they're maintainers)."""
         config = Config(repo_owner="o", repo_name="r")
+        config.allow_action.label = "fossier:verified"
         api = MagicMock()
-        decision = _make_decision(Outcome.ALLOW)
+        decision = _make_decision(Outcome.ALLOW, tier=TrustTier.TRUSTED)
         execute_outcome(decision, config, api)
         api.post_or_update_comment.assert_not_called()
         api.add_labels.assert_not_called()
         api.close_pr.assert_not_called()
+
+    def test_allow_labels_known_tier(self):
+        """KNOWN tier ALLOW with label configured should add label."""
+        config = Config(repo_owner="o", repo_name="r")
+        config.allow_action.label = "fossier:verified"
+        api = MagicMock()
+        decision = _make_decision(Outcome.ALLOW, tier=TrustTier.KNOWN, score=75.0)
+        execute_outcome(decision, config, api)
+        api.add_labels.assert_called_once_with("o", "r", 42, ["fossier:verified"])
+        api.post_or_update_comment.assert_not_called()
+
+    def test_allow_no_label_configured(self):
+        """KNOWN tier ALLOW with no label configured should not add label."""
+        config = Config(repo_owner="o", repo_name="r")
+        api = MagicMock()
+        decision = _make_decision(Outcome.ALLOW, tier=TrustTier.KNOWN, score=75.0)
+        execute_outcome(decision, config, api)
+        api.add_labels.assert_not_called()
+
+    def test_allow_with_comment(self):
+        """KNOWN tier ALLOW with comment enabled should post comment."""
+        config = Config(repo_owner="o", repo_name="r")
+        config.allow_action.label = "fossier:verified"
+        config.allow_action.comment = True
+        api = MagicMock()
+        decision = _make_decision(Outcome.ALLOW, tier=TrustTier.KNOWN, score=75.0)
+        execute_outcome(decision, config, api)
+        api.add_labels.assert_called_once()
+        api.post_or_update_comment.assert_called_once()
+        body = api.post_or_update_comment.call_args[0][3]
+        assert "Verified" in body
+        assert "testuser" in body
 
 
 class TestCommentFormatting:

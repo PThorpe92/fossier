@@ -187,6 +187,29 @@ class TestDbCommands:
         assert "Pruned" in captured.out
 
 
+class TestReportCommand:
+    def test_report_text(self, _patch_load_config, capsys):
+        result = main(["report"])
+        assert result == EXIT_ALLOW
+        captured = capsys.readouterr()
+        assert "Fossier Report" in captured.out
+
+    def test_report_json(self, _patch_load_config, capsys):
+        _patch_load_config._config.output_format = "json"
+        result = main(["report", "--format", "json"])
+        assert result == EXIT_ALLOW
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "total_contributors" in data
+        assert "spam_rate" in data
+
+    def test_report_custom_days(self, _patch_load_config, capsys):
+        result = main(["report", "--days", "7"])
+        assert result == EXIT_ALLOW
+        captured = capsys.readouterr()
+        assert "7 days" in captured.out
+
+
 class TestInitCommand:
     def test_init_creates_files(self, _patch_load_config, capsys, tmp_path):
         result = main(["init"])

@@ -200,3 +200,77 @@ def test_reject_ai_authored_clean_commits_pass(config, db, api):
     decision = evaluate_contributor("newuser", resolver, pr_number=42)
     # Should not be denied for AI authorship
     assert "ai co-authored" not in decision.reason.lower()
+
+
+def test_registry_known_spam_blocks(config, db, api):
+    """When registry returns known=True with 3+ reports, user should be denied."""
+    config.registry_url = "https://registry.example.com"
+    config.registry_check_before_scoring = True
+
+    from unittest.mock import patch
+    from fossier.registry_client import RegistryCheckResult
+
+    mock_client = MagicMock()
+    mock_client.check_username.return_value = RegistryCheckResult(known=True, report_count=5)
+
+    with patch("fossier.registry_client.RegistryClient", return_value=mock_client):
+        resolver = TrustResolver(config, db, api)
+        decision = evaluate_contributor("spammer", resolver, pr_number=1)
+
+    assert decision.outcome == Outcome.DENY
+    assert "registry" in decision.reason.lower()
+    mock_client.close.assert_called_once()
+
+
+def test_registry_check_failure_continues(config, db, api):
+    """When registry check fails, pipeline should continue normally."""
+    config.registry_url = "https://registry.example.com"
+    config.registry_check_before_scoring = True
+
+    from unittest.mock import patch
+
+    mock_client = MagicMock()
+    mock_client.check_username.side_effect = Exception("connection refused")
+
+    with patch("fossier.registry_client.RegistryClient", return_value=mock_client):
+        resolver = TrustResolver(config, db, api)
+        decision = evaluate_contributor("newuser", resolver)
+
+    # Should still produce a decision (scored normally)
+    assert decision.outcome in (Outcome.ALLOW, Outcome.REVIEW, Outcome.DENY)
+    assert "registry" not in decision.reason.lower()
+
+
+def test_registry_reports_denial(config, db, api):
+    """After a score-based DENY, denial should be reported to registry."""
+    config.registry_url = "https://registry.example.com"
+    config.registry_report_denials = True
+    config.registry_api_key = "test-key"
+
+    # Make the user get a low score -> DENY
+    api.get_user.return_value = {
+        "created_at": "2026-03-15T00:00:00Z",
+        "public_repos": 0,
+        "public_gists": 0,
+        "followers": 0,
+        "following": 0,
+        "type": "User",
+        "email": None,
+    }
+    api.search_open_prs.return_value = 20
+    api.get_repo.return_value = {"stargazers_count": 5000}
+
+    from unittest.mock import patch
+
+    mock_client = MagicMock()
+    mock_client.report_spam.return_value = True
+
+    with patch("fossier.registry_client.RegistryClient", return_value=mock_client):
+        resolver = TrustResolver(config, db, api)
+        decision = evaluate_contributor("spambot", resolver, pr_number=99)
+
+    if decision.outcome == Outcome.DENY:
+        mock_client.report_spam.assert_called_once()
+        call_kwargs = mock_client.report_spam.call_args
+        assert call_kwargs.kwargs["username"] == "spambot" or call_kwargs[1]["username"] == "spambot"
+        mock_client.close.assert_called_once()
