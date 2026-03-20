@@ -47,3 +47,4 @@ collaborators_hours = 6
 # trusted_users = ["dependabot", "renovate"]
 # blocked_users = ["known-spammer"]
 # bot_policy = "score"  # "score" (default), "allow", or "block"
+# reject_ai_authored = false  # auto-deny PRs with AI co-authored commits (Claude, Copilot, etc.)

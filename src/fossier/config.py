@@ -80,6 +80,7 @@ class Config:
     trusted_users: set[str] = field(default_factory=set)
     blocked_users: set[str] = field(default_factory=set)
     bot_policy: str = "score"  # "score" (default), "allow", or "block"
+    reject_ai_authored: bool = False  # auto-deny PRs with AI co-authored commits
 
     verbose: bool = False
     dry_run: bool = False
@@ -191,6 +192,8 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.blocked_users = {u.lower() for u in trust["blocked_users"]}
         if "bot_policy" in trust:
             config.bot_policy = str(trust["bot_policy"])
+        if "reject_ai_authored" in trust:
+            config.reject_ai_authored = bool(trust["reject_ai_authored"])
 
 
 def _apply_env(config: Config) -> None:

@@ -38,7 +38,7 @@ Unknown contributors are scored across 13 signals, each normalized to 0.0–1.0:
 | `follower_ratio` | followers / following ratio | 0.07 |
 | `bot_signals` | Username patterns, API `type` field | 0.07 |
 | `commit_email` | Public email set, disposable domain detection | 0.05 |
-| `pr_description` | PR title/body quality (empty, keyword-stuffed, links) | 0.05 |
+| `pr_description` | PR title/body quality (empty, keyword-stuffed, links, em-dashes, emojis) | 0.05 |
 | `repo_stars` | Target repo popularity (high-star repos attract more spam) | 0.05 |
 | `org_membership` | Public GitHub organization memberships | 0.05 |
 | `commit_verification` | GPG/SSH signed commits | 0.08 |
@@ -52,6 +52,17 @@ The composite score (0–100) maps to an outcome:
 | < 40 | **DENY** | Post explanatory comment + close PR |
 
 If too many signals fail (confidence < 0.5), the outcome is forced to **REVIEW** regardless of score.
+
+### AI-Authored Commit Rejection
+
+Fossier can automatically reject PRs that contain commits co-authored by AI agents. When `reject_ai_authored` is enabled, commit messages are scanned for `Co-Authored-By` lines matching known AI tools (Claude, Copilot, GPT, Cursor, Codeium, Windsurf, Devin, Gemini, and others). If any match is found, the PR is immediately denied regardless of trust tier or score.
+
+```toml
+[trust]
+reject_ai_authored = true  # default: false
+```
+
+This check runs before the trust tier cascade and scoring algorithm, so even trusted contributors will have AI-co-authored PRs rejected when this is enabled.
 
 ## Quick Start
 
@@ -177,6 +188,7 @@ collaborators_hours = 6
 trusted_users = ["dependabot", "renovate"]
 blocked_users = []
 # bot_policy = "score"  # "score" (default), "allow", or "block"
+# reject_ai_authored = false  # auto-deny PRs with AI co-authored commits
 ```
 
 See [`fossier.toml.example`](fossier.toml.example) for the full reference.

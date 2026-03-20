@@ -21,6 +21,7 @@ def test_default_config():
     assert config.dry_run is False
     assert config.output_format == "text"
     assert config.bot_policy == "score"
+    assert config.reject_ai_authored is False
 
 
 def test_load_config_from_toml(tmp_path):
@@ -55,6 +56,7 @@ collaborators_hours = 12
 trusted_users = ["Alice", "Bob"]
 blocked_users = ["Spammer"]
 bot_policy = "allow"
+reject_ai_authored = true
 """
     toml_path = tmp_path / "fossier.toml"
     toml_path.write_text(toml_content)
@@ -74,6 +76,7 @@ bot_policy = "allow"
     assert "bob" in config.trusted_users
     assert "spammer" in config.blocked_users
     assert config.bot_policy == "allow"
+    assert config.reject_ai_authored is True
 
 
 def test_load_config_github_dir(tmp_path):
