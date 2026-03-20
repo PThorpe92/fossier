@@ -34,16 +34,13 @@ class TrustResolver:
         username_lower = username.lower()
         repo_root = self.config.repo_root
 
-        # Parse VOUCHED.td once for both blocked and trusted checks
-        td = parse_vouched(repo_root)
-
         # 1. BLOCKED - checked first so denounced users can't be elevated
-        tier, reason = self._check_blocked(username_lower, td)
+        tier, reason = self._check_blocked(username_lower, self.td)
         if tier:
             return tier, reason
 
         # 2. TRUSTED
-        tier, reason = self._check_trusted(username_lower, repo_root, td)
+        tier, reason = self._check_trusted(username_lower, repo_root, self.td)
         if tier:
             return tier, reason
 
@@ -95,6 +92,16 @@ class TrustResolver:
                     return TrustTier.TRUSTED, "GitHub repository collaborator"
             except Exception as e:
                 logger.warning("Failed to check collaborators: %s", e)
+
+        # Trusted org membership
+        if self.config.trusted_orgs:
+            try:
+                user_orgs = set(self.api.get_user_orgs(username))
+                overlap = self.config.trusted_orgs & user_orgs
+                if overlap:
+                    return TrustTier.TRUSTED, f"Member of trusted org: {', '.join(sorted(overlap))}"
+            except Exception as e:
+                logger.warning("Failed to check org membership: %s", e)
 
         return None, ""
 

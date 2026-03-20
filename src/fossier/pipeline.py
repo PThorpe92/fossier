@@ -7,7 +7,7 @@ import re
 
 from fossier.models import Contributor, Decision, Outcome, TrustTier
 from fossier.scoring import score_contributor
-from fossier.signals import _BOT_USERNAME_PATTERNS
+from fossier.signals import is_bot_username
 from fossier.trust import TrustResolver
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ def evaluate_contributor(
             return decision
 
     # Check bot policy before full pipeline
-    if config.bot_policy != "score" and _BOT_USERNAME_PATTERNS.search(username):
+    if config.bot_policy != "score" and is_bot_username(username):
         if config.bot_policy == "allow":
             tier, outcome = TrustTier.TRUSTED, Outcome.ALLOW
             reason = "Bot auto-allowed by bot_policy config"
@@ -102,6 +102,39 @@ def evaluate_contributor(
         contributor_id = db.upsert_contributor(contributor)
         db.record_decision(contributor_id, decision, None)
         return decision
+
+    # Optional registry pre-check: block users with multiple spam reports
+    if config.registry_url and config.registry_check_before_scoring:
+        try:
+            from fossier.registry_client import RegistryClient
+
+            reg = RegistryClient(config.registry_url, config.registry_api_key)
+            try:
+                check = reg.check_username(username)
+                if check and check.known and check.report_count >= 3:
+                    reason = f"Known spam in global registry ({check.report_count} reports)"
+                    logger.info("Blocking %s: %s", username, reason)
+                    contributor = Contributor(
+                        username=username,
+                        repo_owner=config.repo_owner,
+                        repo_name=config.repo_name,
+                        trust_tier=TrustTier.BLOCKED,
+                        blocked_reason=reason,
+                    )
+                    decision = Decision(
+                        contributor=contributor,
+                        trust_tier=TrustTier.BLOCKED,
+                        outcome=Outcome.DENY,
+                        reason=reason,
+                        pr_number=pr_number,
+                    )
+                    contributor_id = db.upsert_contributor(contributor)
+                    db.record_decision(contributor_id, decision, None)
+                    return decision
+            finally:
+                reg.close()
+        except Exception as e:
+            logger.warning("Registry pre-check failed, continuing: %s", e)
 
     tier, reason = resolver.resolve_tier(username)
     contributor = Contributor(
@@ -149,5 +182,31 @@ def evaluate_contributor(
     if score_result:
         score_history_id = db.record_score(contributor_id, score_result, pr_number)
     db.record_decision(contributor_id, decision, score_history_id)
+
+    # Report denial to global registry
+    if (
+        config.registry_url
+        and config.registry_report_denials
+        and decision.outcome == Outcome.DENY
+        and score_result  # only report score-based denials, not tier-based
+    ):
+        try:
+            from fossier.registry_client import RegistryClient
+
+            reg = RegistryClient(config.registry_url, config.registry_api_key)
+            try:
+                reg.report_spam(
+                    username=username,
+                    repo_owner=config.repo_owner,
+                    repo_name=config.repo_name,
+                    score=score_result.total_score,
+                    reason=decision_reason,
+                    pr_number=pr_number,
+                    signals=score_result.signal_breakdown,
+                )
+            finally:
+                reg.close()
+        except Exception as e:
+            logger.warning("Failed to report to registry: %s", e)
 
     return decision

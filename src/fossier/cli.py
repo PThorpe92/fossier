@@ -133,6 +133,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_scan.set_defaults(func=_cmd_scan)
 
+    # report
+    p_report = sub.add_parser(
+        "report", parents=[common], help="Show spam rates and signal distributions"
+    )
+    p_report.add_argument(
+        "--days", type=int, default=30, help="Time window in days (default: 30)"
+    )
+    p_report.set_defaults(func=_cmd_report)
+
     # db subcommands
     p_db = sub.add_parser("db", parents=[common], help="Database operations")
     db_sub = p_db.add_subparsers(title="db commands")
@@ -367,6 +376,88 @@ def _cmd_db_prune(args: argparse.Namespace) -> int:
         db.close()
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    """Show spam rates, decision stats, and signal distributions."""
+    config = load_config(cli_overrides=_get_config(args))
+    db = Database(config.db_path)
+    db.connect()
+
+    try:
+        if not config.repo_owner or not config.repo_name:
+            logger.error(
+                "Repository not configured. Use --repo owner/repo or set up fossier.toml"
+            )
+            return EXIT_ERROR
+
+        days = getattr(args, "days", 30)
+        stats = db.get_report_stats(config.repo_owner, config.repo_name, days)
+
+        if config.output_format == "json":
+            print(json.dumps(stats, indent=2))
+        else:
+            _print_report_text(stats)
+
+        return EXIT_ALLOW
+    finally:
+        db.close()
+
+
+def _print_report_text(stats: dict) -> None:
+    """Format and print the report in human-readable text."""
+    days = stats.get("days", 30)
+    print(f"Fossier Report (last {days} days)")
+    print("=" * 40)
+    print()
+
+    # Contributors
+    print(f"Total contributors: {stats.get('total_contributors', 0)}")
+    tiers = stats.get("contributors_by_tier", {})
+    for tier, count in tiers.items():
+        print(f"  {tier:10s} {count}")
+    print()
+
+    # Decisions
+    total = stats.get("total_decisions", 0)
+    print(f"Total decisions: {total}")
+    outcomes = stats.get("decisions_by_outcome", {})
+    for outcome, count in outcomes.items():
+        pct = f"({count / total * 100:.0f}%)" if total > 0 else ""
+        print(f"  {outcome:10s} {count:4d}  {pct}")
+    print()
+
+    # Spam rate
+    print(f"Spam rate: {stats.get('spam_rate', 0):.1f}%")
+    print()
+
+    # Average scores
+    avg = stats.get("avg_score_by_outcome", {})
+    if any(v is not None for v in avg.values()):
+        print("Average scores by outcome:")
+        for outcome, score in avg.items():
+            if score is not None:
+                print(f"  {outcome:10s} {score:.1f}")
+        print()
+
+    # Top denied
+    top_denied = stats.get("top_denied_users", [])
+    if top_denied:
+        print("Top denied users:")
+        for entry in top_denied:
+            print(f"  @{entry['username']:20s} {entry['deny_count']} denials")
+        print()
+
+    # Recent decisions
+    recent = stats.get("recent_decisions", [])
+    if recent:
+        print("Recent decisions:")
+        for d in recent:
+            score_str = f"score={d['score']:.1f}" if d["score"] is not None else ""
+            print(
+                f"  [{d['decided_at']}] @{d['username']:15s} "
+                f"{d['outcome']:6s} {score_str}"
+            )
+
+
 def _cmd_init(args: argparse.Namespace) -> int:
     """Interactive setup: create fossier.toml and VOUCHED.td."""
     config = load_config(cli_overrides=_get_config(args))
@@ -475,12 +566,13 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             print("No open PRs found")
             return EXIT_ALLOW
 
+        resolver = TrustResolver(config, db, api)
         results = []
         for pr_data in all_prs:
             pr_number = pr_data["number"]
             username = pr_data["user"]["login"].lower()
 
-            decision = evaluate_contributor(username, config, db, api, pr_number)
+            decision = evaluate_contributor(username, resolver, pr_number)
             results.append(decision)
 
             if should_execute:

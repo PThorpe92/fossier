@@ -57,6 +57,12 @@ class ReviewActionConfig:
 
 
 @dataclass
+class AllowActionConfig:
+    label: str = ""  # empty = no label; set to e.g. "fossier:verified"
+    comment: bool = False
+
+
+@dataclass
 class CacheTTLConfig:
     user_profile_hours: int = 24
     search_hours: int = 1
@@ -75,12 +81,19 @@ class Config:
     signal_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
     deny_action: DenyActionConfig = field(default_factory=DenyActionConfig)
     review_action: ReviewActionConfig = field(default_factory=ReviewActionConfig)
+    allow_action: AllowActionConfig = field(default_factory=AllowActionConfig)
     cache_ttl: CacheTTLConfig = field(default_factory=CacheTTLConfig)
 
     trusted_users: set[str] = field(default_factory=set)
     blocked_users: set[str] = field(default_factory=set)
+    trusted_orgs: set[str] = field(default_factory=set)
     bot_policy: str = "score"  # "score" (default), "allow", or "block"
     reject_ai_authored: bool = False  # auto-deny PRs with AI co-authored commits
+
+    registry_url: str = ""
+    registry_api_key: str = ""
+    registry_report_denials: bool = False
+    registry_check_before_scoring: bool = False
 
     verbose: bool = False
     dry_run: bool = False
@@ -174,6 +187,12 @@ def _apply_toml(config: Config, path: Path) -> None:
                 config.review_action.comment = bool(r["comment"])
             if "label" in r:
                 config.review_action.label = str(r["label"])
+        if "allow" in actions:
+            a = actions["allow"]
+            if "label" in a:
+                config.allow_action.label = str(a["label"])
+            if "comment" in a:
+                config.allow_action.comment = bool(a["comment"])
 
     if "cache_ttl" in data:
         c = data["cache_ttl"]
@@ -190,10 +209,23 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.trusted_users = {u.lower() for u in trust["trusted_users"]}
         if "blocked_users" in trust:
             config.blocked_users = {u.lower() for u in trust["blocked_users"]}
+        if "trusted_orgs" in trust:
+            config.trusted_orgs = {o.lower() for o in trust["trusted_orgs"]}
         if "bot_policy" in trust:
             config.bot_policy = str(trust["bot_policy"])
         if "reject_ai_authored" in trust:
             config.reject_ai_authored = bool(trust["reject_ai_authored"])
+
+    if "registry" in data:
+        reg = data["registry"]
+        if "url" in reg:
+            config.registry_url = str(reg["url"])
+        if "api_key" in reg:
+            config.registry_api_key = str(reg["api_key"])
+        if "report_denials" in reg:
+            config.registry_report_denials = bool(reg["report_denials"])
+        if "check_before_scoring" in reg:
+            config.registry_check_before_scoring = bool(reg["check_before_scoring"])
 
 
 def _apply_env(config: Config) -> None:
@@ -204,6 +236,13 @@ def _apply_env(config: Config) -> None:
     contact_url = os.environ.get("FOSSIER_CONTACT_URL", "")
     if contact_url:
         config.deny_action.contact_url = contact_url
+
+    registry_url = os.environ.get("FOSSIER_REGISTRY_URL", "")
+    if registry_url:
+        config.registry_url = registry_url
+    registry_key = os.environ.get("FOSSIER_REGISTRY_API_KEY", "")
+    if registry_key:
+        config.registry_api_key = registry_key
 
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if repo and "/" in repo:

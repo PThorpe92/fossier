@@ -31,6 +31,11 @@ _BOT_USERNAME_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+
+def is_bot_username(username: str) -> bool:
+    """Check if a username matches known bot patterns."""
+    return bool(_BOT_USERNAME_PATTERNS.search(username))
+
 # Emoji Unicode ranges (common blocks)
 _EMOJI_RE = re.compile(
     "["

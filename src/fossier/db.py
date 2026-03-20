@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from time import sleep
+from datetime import datetime, timedelta, timezone
 
 import turso
 
@@ -76,7 +75,6 @@ class Database:
     def close(self) -> None:
         if self._conn:
             self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            sleep(0.01)  # truncate the WAL
             self._conn.close()
             self._conn = None
 
@@ -312,5 +310,103 @@ class Database:
                 [repo_owner, repo_name, outcome.value],
             )
             stats[f"decisions_{outcome.value}"] = result.fetchone()[0]
+
+        return stats
+
+    def get_report_stats(self, repo_owner: str, repo_name: str, days: int = 30) -> dict:
+        """Get detailed statistics for the report command."""
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=days)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        repo_filter = "c.repo_owner = ? AND c.repo_name = ?"
+        repo_params = [repo_owner, repo_name]
+
+        stats: dict = {"days": days}
+
+        # Contributors by tier
+        tiers = {}
+        for tier in TrustTier:
+            result = self.conn.execute(
+                f"SELECT COUNT(*) FROM contributors c WHERE {repo_filter} AND trust_tier = ?",
+                [*repo_params, tier.value],
+            )
+            tiers[tier.value] = result.fetchone()[0]
+        stats["contributors_by_tier"] = tiers
+        stats["total_contributors"] = sum(tiers.values())
+
+        # Decisions by outcome (within time window)
+        outcomes = {}
+        total_decisions = 0
+        for outcome in Outcome:
+            result = self.conn.execute(
+                f"""SELECT COUNT(*) FROM decisions d
+                    JOIN contributors c ON d.contributor_id = c.id
+                    WHERE {repo_filter} AND d.outcome = ? AND d.decided_at >= ?""",
+                [*repo_params, outcome.value, cutoff],
+            )
+            count = result.fetchone()[0]
+            outcomes[outcome.value] = count
+            total_decisions += count
+        stats["decisions_by_outcome"] = outcomes
+        stats["total_decisions"] = total_decisions
+
+        # Average scores by outcome
+        avg_scores = {}
+        for outcome in Outcome:
+            result = self.conn.execute(
+                f"""SELECT AVG(s.total_score) FROM decisions d
+                    JOIN contributors c ON d.contributor_id = c.id
+                    LEFT JOIN score_history s ON d.score_history_id = s.id
+                    WHERE {repo_filter} AND d.outcome = ? AND d.decided_at >= ?
+                    AND s.total_score IS NOT NULL""",
+                [*repo_params, outcome.value, cutoff],
+            )
+            row = result.fetchone()
+            avg_scores[outcome.value] = round(row[0], 1) if row[0] is not None else None
+        stats["avg_score_by_outcome"] = avg_scores
+
+        # Spam rate
+        if total_decisions > 0:
+            deny_count = outcomes.get("deny", 0)
+            stats["spam_rate"] = round(deny_count / total_decisions * 100, 1)
+        else:
+            stats["spam_rate"] = 0.0
+
+        # Recent decisions (last 10)
+        result = self.conn.execute(
+            f"""SELECT d.decided_at, c.username, d.trust_tier, d.outcome,
+                       d.reason, s.total_score
+                FROM decisions d
+                JOIN contributors c ON d.contributor_id = c.id
+                LEFT JOIN score_history s ON d.score_history_id = s.id
+                WHERE {repo_filter}
+                ORDER BY d.decided_at DESC LIMIT 10""",
+            repo_params,
+        )
+        stats["recent_decisions"] = [
+            {
+                "decided_at": row[0],
+                "username": row[1],
+                "tier": row[2],
+                "outcome": row[3],
+                "reason": row[4],
+                "score": row[5],
+            }
+            for row in result.fetchall()
+        ]
+
+        # Top denied users
+        result = self.conn.execute(
+            f"""SELECT c.username, COUNT(*) as deny_count
+                FROM decisions d
+                JOIN contributors c ON d.contributor_id = c.id
+                WHERE {repo_filter} AND d.outcome = 'deny'
+                GROUP BY c.username ORDER BY deny_count DESC LIMIT 10""",
+            repo_params,
+        )
+        stats["top_denied_users"] = [
+            {"username": row[0], "deny_count": row[1]}
+            for row in result.fetchall()
+        ]
 
         return stats

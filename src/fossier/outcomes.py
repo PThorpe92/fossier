@@ -4,7 +4,7 @@ import logging
 
 from fossier.config import Config
 from fossier.github_api import GitHubAPI
-from fossier.models import Decision, Outcome, ScoreResult
+from fossier.models import Decision, Outcome, ScoreResult, TrustTier
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +36,7 @@ def execute_outcome(
     elif decision.outcome == Outcome.REVIEW:
         _execute_review(owner, repo, pr, decision, config, api)
     elif decision.outcome == Outcome.ALLOW:
-        # allow is silent, just log it
-        logger.debug(
-            "PR #%d allowed for %s (%s)",
-            pr,
-            decision.contributor.username,
-            decision.reason,
-        )
+        _execute_allow(owner, repo, pr, decision, config, api)
 
 
 def _execute_deny(
@@ -78,6 +72,41 @@ def _execute_review(
 
     if config.review_action.label:
         api.add_labels(owner, repo, pr, [config.review_action.label])
+
+
+def _execute_allow(
+    owner: str,
+    repo: str,
+    pr: int,
+    decision: Decision,
+    config: Config,
+    api: GitHubAPI,
+) -> None:
+    # Only label KNOWN-tier contributors (scored and passed), not TRUSTED (maintainers/codeowners)
+    if decision.trust_tier != TrustTier.KNOWN:
+        logger.debug(
+            "PR #%d allowed for %s (tier=%s), skipping allow actions",
+            pr, decision.contributor.username, decision.trust_tier.value,
+        )
+        return
+
+    if config.allow_action.label:
+        api.add_labels(owner, repo, pr, [config.allow_action.label])
+
+    if config.allow_action.comment:
+        body = _format_allow_comment(decision)
+        api.post_or_update_comment(owner, repo, pr, body)
+
+
+def _format_allow_comment(decision: Decision) -> str:
+    lines = [
+        "## Fossier: Contributor Verified",
+        "",
+        f"`@{decision.contributor.username}` passed automated trust evaluation.",
+    ]
+    if decision.score_result:
+        lines.append(f"Score: {decision.score_result.total_score}/100")
+    return "\n".join(lines)
 
 
 def _format_deny_comment(decision: Decision, contact_url: str = "") -> str:
