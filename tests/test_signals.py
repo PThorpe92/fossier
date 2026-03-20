@@ -8,6 +8,7 @@ from fossier.signals import (
     _signal_follower_ratio,
     _signal_open_prs,
     _signal_pr_content,
+    _signal_pr_description,
     _signal_prior_interaction,
     _signal_public_repos,
     collect_signals,
@@ -202,3 +203,41 @@ def test_collect_signals_fetches_user_once():
     ]
     collect_signals(api, "user", "o", "r")
     assert api.get_user.call_count == 1
+
+
+def test_pr_description_em_dash_penalty():
+    """Em dashes in PR description should reduce score (AI-slop indicator)."""
+    api = _mock_api()
+    api.get_pr.return_value = {
+        "title": "Refactor authentication module",
+        "body": "This PR refactors the auth module \u2014 improving clarity and performance.",
+    }
+    result = _signal_pr_description(api, "user", "o", "r", 1)
+    assert result.success
+    # Should be penalized vs a clean description
+    api2 = _mock_api()
+    api2.get_pr.return_value = {
+        "title": "Refactor authentication module",
+        "body": "This PR refactors the auth module, improving clarity and performance.",
+    }
+    clean_result = _signal_pr_description(api2, "user", "o", "r", 1)
+    assert result.normalized < clean_result.normalized
+
+
+def test_pr_description_emoji_penalty():
+    """Excessive emojis in PR description should reduce score."""
+    api = _mock_api()
+    api.get_pr.return_value = {
+        "title": "Fix bug \U0001f41b",
+        "body": "Fixed the issue \u2728\U0001f680\U0001f389\U0001f4af great improvement!",
+    }
+    result = _signal_pr_description(api, "user", "o", "r", 1)
+    assert result.success
+    # Few emojis (<=3) should not be penalized
+    api2 = _mock_api()
+    api2.get_pr.return_value = {
+        "title": "Fix bug",
+        "body": "Fixed the issue, this is a great improvement for users!",
+    }
+    clean_result = _signal_pr_description(api2, "user", "o", "r", 1)
+    assert result.normalized < clean_result.normalized

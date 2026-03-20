@@ -31,6 +31,21 @@ _BOT_USERNAME_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Emoji Unicode ranges (common blocks)
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f300-\U0001f9ff"  # Misc Symbols, Emoticons, Symbols & Pictographs, etc.
+    "\U00002702-\U000027b0"  # Dingbats
+    "\U0000fe00-\U0000fe0f"  # Variation Selectors
+    "\U0001fa00-\U0001faff"  # Symbols and Pictographs Extended-A
+    "\U00002600-\U000026ff"  # Misc Symbols
+    "]"
+)
+
+
+def _is_emoji(ch: str) -> bool:
+    return bool(_EMOJI_RE.match(ch))
+
 
 def collect_signals(
     api: GitHubAPI,
@@ -299,8 +314,23 @@ def _signal_pr_description(
     elif link_count > 0:
         score += 0.1  # some references is good
 
+    # Em dashes and emojis in PR text are AI-slop indicators
+    text = title + " " + body
+    has_em_dash = "\u2014" in text or "\u2013" in text
+    emoji_count = sum(1 for ch in text if _is_emoji(ch))
+    if has_em_dash:
+        score -= 0.15
+    if emoji_count > 3:
+        score -= 0.15
+
     normalized = max(0.0, min(1.0, score))
-    raw = {"title_len": len(title), "body_len": len(body), "link_count": link_count}
+    raw = {
+        "title_len": len(title),
+        "body_len": len(body),
+        "link_count": link_count,
+        "has_em_dash": has_em_dash,
+        "emoji_count": emoji_count,
+    }
     return SignalResult("pr_description", str(raw), normalized, 0)
 
 
