@@ -95,6 +95,9 @@ class Config:
     registry_report_denials: bool = False
     registry_check_before_scoring: bool = False
 
+    flood_threshold: int = 3  # PRs/issues from same unknown user within window = spam flood
+    flood_window_hours: int = 1  # time window for flood detection
+
     verbose: bool = False
     dry_run: bool = False
     output_format: str = "text"  # text, json, table
@@ -215,6 +218,10 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.bot_policy = str(trust["bot_policy"])
         if "reject_ai_authored" in trust:
             config.reject_ai_authored = bool(trust["reject_ai_authored"])
+        if "flood_threshold" in trust:
+            config.flood_threshold = int(trust["flood_threshold"])
+        if "flood_window_hours" in trust:
+            config.flood_window_hours = int(trust["flood_window_hours"])
 
     if "registry" in data:
         reg = data["registry"]

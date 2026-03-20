@@ -36,14 +36,16 @@ class RegistryClient:
     def check_username(self, username: str) -> RegistryCheckResult | None:
         """Check if a username is known spam in the global registry."""
         try:
-            response = self._client.get(f"/check/{username}")
+            response = self._client.get(f"/api/check/{username}")
             if response.status_code == 200:
                 data = response.json()
                 return RegistryCheckResult(
                     known=data.get("known", False),
                     report_count=data.get("report_count", 0),
                 )
-            logger.debug("Registry check returned %d for %s", response.status_code, username)
+            logger.debug(
+                "Registry check returned %d for %s", response.status_code, username
+            )
         except httpx.HTTPError as e:
             logger.warning("Registry check failed for %s: %s", username, e)
         return None
@@ -72,7 +74,7 @@ class RegistryClient:
             payload["signals"] = signals
 
         try:
-            response = self._client.post("/report", json=payload)
+            response = self._client.post("/api/report", json=payload)
             if response.status_code in (200, 201):
                 return True
             logger.warning(

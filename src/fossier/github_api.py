@@ -386,3 +386,17 @@ class GitHubAPI:
         if not data or not isinstance(data, list):
             return []
         return data
+
+    def count_recent_items(
+        self, owner: str, repo: str, username: str, since_iso: str
+    ) -> int:
+        """Count PRs + issues opened by a user on this repo since a given ISO timestamp."""
+        query = f"repo:{owner}/{repo} author:{username} created:>={since_iso}"
+        data = self.get(
+            "/search/issues",
+            params={"q": query, "per_page": "1"},
+            pool="search",
+        )
+        if data and isinstance(data, dict):
+            return data.get("total_count", 0)
+        return 0

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import re
 
+from datetime import datetime, timedelta, timezone
+
 from fossier.models import Contributor, Decision, Outcome, TrustTier
 from fossier.scoring import score_contributor
 from fossier.signals import is_bot_username
@@ -135,6 +137,43 @@ def evaluate_contributor(
                 reg.close()
         except Exception as e:
             logger.warning("Registry pre-check failed, continuing: %s", e)
+
+    # Flood detection: block users mass-opening PRs/issues
+    if config.flood_threshold > 0:
+        tier_pre, _ = resolver.resolve_tier(username)
+        if tier_pre not in (TrustTier.TRUSTED, TrustTier.KNOWN):
+            since = (
+                datetime.now(timezone.utc) - timedelta(hours=config.flood_window_hours)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            try:
+                count = api.count_recent_items(
+                    config.repo_owner, config.repo_name, username, since
+                )
+                if count >= config.flood_threshold:
+                    reason = (
+                        f"Flood detected: {count} PRs/issues in "
+                        f"{config.flood_window_hours}h (threshold: {config.flood_threshold})"
+                    )
+                    logger.info("Blocking %s: %s", username, reason)
+                    contributor = Contributor(
+                        username=username,
+                        repo_owner=config.repo_owner,
+                        repo_name=config.repo_name,
+                        trust_tier=TrustTier.BLOCKED,
+                        blocked_reason=reason,
+                    )
+                    decision = Decision(
+                        contributor=contributor,
+                        trust_tier=TrustTier.BLOCKED,
+                        outcome=Outcome.DENY,
+                        reason=reason,
+                        pr_number=pr_number,
+                    )
+                    contributor_id = db.upsert_contributor(contributor)
+                    db.record_decision(contributor_id, decision, None)
+                    return decision
+            except Exception as e:
+                logger.warning("Flood detection failed, continuing: %s", e)
 
     tier, reason = resolver.resolve_tier(username)
     contributor = Contributor(

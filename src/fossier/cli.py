@@ -118,6 +118,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_denounce.set_defaults(func=_cmd_denounce)
 
+    # reject
+    p_reject = sub.add_parser(
+        "reject",
+        parents=[common],
+        help="Reject a contributor: denounce locally and report to the global registry",
+    )
+    p_reject.add_argument("username", help="GitHub username to reject")
+    p_reject.add_argument("--reason", "-m", required=True, help="Reason for rejection")
+    p_reject.add_argument("--pr", type=int, help="Associated PR number (optional)")
+    p_reject.set_defaults(func=_cmd_reject)
+
     # init
     p_init = sub.add_parser(
         "init", parents=[common], help="Initialize fossier config and files"
@@ -325,6 +336,44 @@ def _cmd_denounce(args: argparse.Namespace) -> int:
     return EXIT_ALLOW
 
 
+def _cmd_reject(args: argparse.Namespace) -> int:
+    """Reject a contributor: denounce locally and report to the global registry."""
+    config = load_config(cli_overrides=_get_config(args))
+    username = args.username.lower()
+
+    # 1. Denounce locally in VOUCHED.td
+    path = add_denounce(config.repo_root, username, args.reason)
+    print(f"Denounced {username} in {path}")
+
+    # 2. Report to global registry if configured
+    if config.registry_url and config.registry_api_key:
+        from fossier.registry_client import RegistryClient
+
+        reg = RegistryClient(config.registry_url, config.registry_api_key)
+        try:
+            success = reg.report_spam(
+                username=username,
+                repo_owner=config.repo_owner,
+                repo_name=config.repo_name,
+                score=0.0,
+                reason=f"Manual rejection: {args.reason}",
+                pr_number=getattr(args, "pr", None),
+            )
+            if success:
+                print(f"Reported {username} to the global registry")
+            else:
+                print("Warning: failed to report to the global registry")
+        finally:
+            reg.close()
+    else:
+        print(
+            "Tip: configure [registry] in fossier.toml to also report "
+            "rejections to the global registry"
+        )
+
+    return EXIT_ALLOW
+
+
 def _cmd_db_migrate(args: argparse.Namespace) -> int:
     """Run schema migrations."""
     config = load_config(cli_overrides=_get_config(args))
@@ -522,6 +571,57 @@ def _cmd_init(args: argparse.Namespace) -> int:
             "          github-token: ${{ secrets.GITHUB_TOKEN }}\n"
         )
         print(f"Created {workflow_path}")
+
+    # Create scan workflow (workflow_dispatch)
+    scan_path = workflow_dir / "fossier-scan.yml"
+    if scan_path.exists():
+        print(f"Scan workflow already exists at {scan_path}")
+    else:
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        scan_path.write_text(
+            "name: Fossier Scan All PRs\n\n"
+            "on:\n"
+            "  workflow_dispatch:\n"
+            "    inputs:\n"
+            "      dry-run:\n"
+            '        description: "Dry run - evaluate but don\'t take actions"\n'
+            "        type: boolean\n"
+            "        default: false\n\n"
+            "permissions:\n"
+            "  contents: read\n"
+            "  pull-requests: write\n"
+            "  issues: write\n\n"
+            "jobs:\n"
+            "  scan:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@v4\n\n"
+            "      - name: Set up Python\n"
+            "        uses: actions/setup-python@v5\n"
+            "        with:\n"
+            '          python-version: "3.13"\n\n'
+            "      - name: Install fossier\n"
+            "        run: pip install .\n\n"
+            "      - name: Restore DB cache\n"
+            "        uses: actions/cache@v4\n"
+            "        with:\n"
+            "          path: .fossier.db\n"
+            "          key: fossier-db-${{ github.repository }}-${{ github.run_id }}\n"
+            "          restore-keys: |\n"
+            "            fossier-db-${{ github.repository }}-\n\n"
+            "      - name: Scan open PRs\n"
+            "        env:\n"
+            "          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n"
+            "        run: |\n"
+            '          FLAGS="--format table"\n'
+            '          if [ "${{ inputs.dry-run }}" = "true" ]; then\n'
+            '            FLAGS="$FLAGS --dry-run"\n'
+            "          else\n"
+            '            FLAGS="$FLAGS --execute"\n'
+            "          fi\n"
+            "          fossier scan $FLAGS\n"
+        )
+        print(f"Created {scan_path}")
 
     # Run DB migration
     db = Database(config.db_path)

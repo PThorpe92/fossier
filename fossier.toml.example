@@ -37,6 +37,10 @@ label = "fossier:spam-likely"
 comment = true
 label = "fossier:needs-review"
 
+[actions.allow]
+# label = "fossier:verified"  # Label applied to PRs from scored-and-passed contributors
+# comment = false              # Post a verification comment on allowed PRs
+
 [cache_ttl]
 user_profile_hours = 24
 search_hours = 1
@@ -46,5 +50,13 @@ collaborators_hours = 6
 # Additional trusted/blocked users beyond VOUCHED.td and CODEOWNERS
 # trusted_users = ["dependabot", "renovate"]
 # blocked_users = ["known-spammer"]
+# trusted_orgs = ["my-company", "trusted-foundation"]  # Trust all members of these GitHub orgs
 # bot_policy = "score"  # "score" (default), "allow", or "block"
 # reject_ai_authored = false  # auto-deny PRs with AI co-authored commits (Claude, Copilot, etc.)
+
+[registry]
+# Global fossier spam registry: share spam intelligence across repositories
+# url = "https://registry.fossier.io"
+# api_key = ""                    # Prefer FOSSIER_REGISTRY_API_KEY env var
+# report_denials = false          # Report score-based denials to the registry
+# check_before_scoring = false    # Block users with 3+ registry reports before scoring
