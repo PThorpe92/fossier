@@ -5,13 +5,10 @@ from __future__ import annotations
 import logging
 import re
 
-from fossier.config import Config
-from fossier.db import Database
-from fossier.github_api import GitHubAPI
 from fossier.models import Contributor, Decision, Outcome, TrustTier
 from fossier.scoring import score_contributor
 from fossier.signals import _BOT_USERNAME_PATTERNS
-from fossier.trust import resolve_tier
+from fossier.trust import TrustResolver
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +24,11 @@ _AI_COAUTHOR_RE = re.compile(
 )
 
 
-def _check_ai_authored(api: GitHubAPI, config: Config, pr_number: int) -> str | None:
+def _check_ai_authored(resolver: TrustResolver, pr_number: int) -> str | None:
     """Check PR commits for AI co-author signatures. Returns agent name or None."""
-    commits = api.get_pr_commits(config.repo_owner, config.repo_name, pr_number)
+    commits = resolver.api.get_pr_commits(
+        resolver.config.repo_owner, resolver.config.repo_name, pr_number
+    )
     for commit in commits:
         message = commit.get("commit", {}).get("message", "")
         match = _AI_COAUTHOR_RE.search(message)
@@ -40,9 +39,7 @@ def _check_ai_authored(api: GitHubAPI, config: Config, pr_number: int) -> str | 
 
 def evaluate_contributor(
     username: str,
-    config: Config,
-    db: Database,
-    api: GitHubAPI,
+    resolver: TrustResolver,
     pr_number: int | None = None,
 ) -> Decision:
     """Run the full evaluation pipeline: tier -> score (if needed) -> decision.
@@ -51,10 +48,13 @@ def evaluate_contributor(
     Returns the Decision object (does NOT execute outcome actions).
     """
     username = username.lower()
+    api = resolver.api
+    config = resolver.config
+    db = resolver.db
 
     # Check for AI-authored commits (hard reject if enabled)
-    if config.reject_ai_authored and pr_number is not None:
-        agent = _check_ai_authored(api, config, pr_number)
+    if resolver.config.reject_ai_authored and pr_number is not None:
+        agent = _check_ai_authored(resolver, pr_number)
         if agent:
             reason = f"PR contains AI co-authored commits ({agent})"
             logger.info("Rejecting PR #%d: %s", pr_number, reason)
@@ -103,8 +103,7 @@ def evaluate_contributor(
         db.record_decision(contributor_id, decision, None)
         return decision
 
-    # Resolve trust tier
-    tier, reason = resolve_tier(username, config, db, api)
+    tier, reason = resolver.resolve_tier(username)
     contributor = Contributor(
         username=username,
         repo_owner=config.repo_owner,

@@ -1,5 +1,3 @@
-"""CLI interface: argparse command dispatch."""
-
 from __future__ import annotations
 
 import argparse
@@ -15,7 +13,7 @@ from fossier.models import Decision, Outcome, TrustTier
 from fossier.outcomes import execute_outcome, format_decision_json, format_decision_text
 from fossier.pipeline import evaluate_contributor
 from fossier.scoring import score_contributor
-from fossier.trust import resolve_tier
+from fossier.trust import TrustResolver
 from fossier.trustdown import add_denounce, add_vouch
 
 logger = logging.getLogger(__name__)
@@ -129,7 +127,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # scan
     p_scan = sub.add_parser("scan", parents=[common], help="Bulk-evaluate all open PRs")
     p_scan.add_argument(
-        "--execute", action="store_true",
+        "--execute",
+        action="store_true",
         help="Execute outcome actions (comment/label/close) for each PR",
     )
     p_scan.set_defaults(func=_cmd_scan)
@@ -173,11 +172,10 @@ def _cmd_check(args: argparse.Namespace) -> int:
     db.connect()
     api = GitHubAPI(config, db)
     api.validate_token()
+    resolver = TrustResolver(config, db, api)
 
     try:
-        decision = evaluate_contributor(
-            args.username, config, db, api, pr_number=args.pr
-        )
+        decision = evaluate_contributor(args.username, resolver, pr_number=args.pr)
 
         # Execute outcome actions
         execute_outcome(decision, config, api)
@@ -241,15 +239,17 @@ def _cmd_tier(args: argparse.Namespace) -> int:
     db = Database(config.db_path)
     db.connect()
     api = GitHubAPI(config, db)
+    username = args.username.lower()
 
     try:
-        tier, reason = resolve_tier(args.username.lower(), config, db, api)
+        resolver = TrustResolver(config, db, api)
+        tier, reason = resolver.resolve_tier(username)
 
         if config.output_format == "json":
             print(
                 json.dumps(
                     {
-                        "username": args.username.lower(),
+                        "username": username,
                         "tier": tier.value,
                         "reason": reason,
                     }
@@ -504,8 +504,6 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         api.close()
         db.close()
 
-
-# --- Output formatting ---
 
 _ANSI_COLORS = {
     "green": "\033[32m",

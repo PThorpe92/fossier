@@ -1,10 +1,9 @@
-"""Database layer: schema, migrations, and query helpers using pyturso."""
-
 from __future__ import annotations
 
 import json
 import logging
 from datetime import datetime, timezone
+from time import sleep
 
 import turso
 
@@ -76,7 +75,8 @@ class Database:
 
     def close(self) -> None:
         if self._conn:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", [])
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            sleep(0.01)  # truncate the WAL
             self._conn.close()
             self._conn = None
 

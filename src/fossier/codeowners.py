@@ -1,5 +1,3 @@
-"""CODEOWNERS file parser: extracts GitHub usernames from ownership rules."""
-
 from __future__ import annotations
 
 import logging
