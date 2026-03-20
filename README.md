@@ -53,6 +53,18 @@ The composite score (0–100) maps to an outcome:
 
 If too many signals fail (confidence < 0.5), the outcome is forced to **REVIEW** regardless of score.
 
+### Flood Detection
+
+Fossier detects when a non-trusted contributor mass-opens PRs or issues in a short time window — a common pattern with automated spam tools. If an unknown user exceeds the threshold, all their PRs are automatically denied.
+
+```toml
+[trust]
+flood_threshold = 3      # 3+ PRs/issues from the same unknown user within the window = spam
+flood_window_hours = 1   # time window to check (default: 1 hour)
+```
+
+Trusted and known contributors are exempt from flood detection. This check runs before scoring, so mass-opened PRs are caught immediately without consuming API quota.
+
 ### AI-Authored Commit Rejection
 
 Fossier can automatically reject PRs that contain commits co-authored by AI agents. When `reject_ai_authored` is enabled, commit messages are scanned for `Co-Authored-By` lines matching known AI tools (Claude, Copilot, GPT, Cursor, Codeium, Windsurf, Devin, Gemini, and others). If any match is found, the PR is immediately denied regardless of trust tier or score.
@@ -128,16 +140,36 @@ fossier history octocat --repo owner/repo
 fossier vouch octocat
 fossier denounce spammer --reason "SEO link spam"
 
-# Initialize config files in a repo
+# Reject a contributor (denounce locally + report to global registry)
+fossier reject spammer --reason "SEO link spam" --pr 42
+
+# Initialize config files and workflows
 fossier init
 
 # Bulk-evaluate all open PRs
 fossier scan --repo owner/repo
 
+# Scan and take action (close spam, label reviews)
+fossier scan --execute
+
 # Database operations
 fossier db migrate
 fossier db stats --repo owner/repo
 fossier db prune
+```
+
+### Bulk Scan (workflow_dispatch)
+
+`fossier init` generates a `fossier-scan.yml` workflow you can trigger from the GitHub Actions tab. It evaluates all open PRs at once — closing spam, labeling borderline PRs for review, and passing trusted contributors through. Run with the "dry run" option to preview without taking action.
+
+Locally, the same command works if you have the `gh` CLI authenticated:
+
+```bash
+# Preview (no actions taken)
+fossier scan --format table --dry-run
+
+# Execute actions (close/label/comment)
+fossier scan --execute
 ```
 
 **Exit codes:** 0 = allow, 1 = deny, 2 = review, 3 = error.
@@ -153,6 +185,18 @@ Create `fossier.toml` (or `.github/fossier.toml`) in your repo root:
 allow_score = 70.0    # Score >= this -> auto-allow
 deny_score = 40.0     # Score < this -> auto-deny
 min_confidence = 0.5  # Below this -> force REVIEW regardless of score
+
+[trust]
+flood_threshold = 3        # PRs/issues from same unknown user in window = flood
+flood_window_hours = 1     # time window for flood detection
+# reject_ai_authored = false
+
+[registry]
+# Global fossier spam registry: share and receive spam intelligence across repositories
+# Register at https://fossier.io to get an API key
+url = "https://registry.fossier.io"
+report_denials = false          # Automatically report score-based denials to the registry
+check_before_scoring = false    # Block users with 3+ registry reports before scoring
 
 [weights]
 # Signal weights (auto-normalized to sum to 1.0)
@@ -203,7 +247,7 @@ If the [GitHub CLI](https://cli.github.com/) (`gh`) is installed and authenticat
 - **Search fallback** — when the search API fails (private repos, insufficient scopes), falls back to `gh search prs`/`gh search issues`
 - **Collaborators fallback** — uses `gh api` when the REST API can't list collaborators
 
-This means running `fossier check` locally "just works" if you have `gh` set up — no token configuration needed.
+This means running `fossier check` locally "just works" if you have `gh` set up, no token configuration needed.
 
 ## VOUCHED.td
 
