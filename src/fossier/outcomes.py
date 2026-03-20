@@ -1,5 +1,3 @@
-"""Score→outcome mapping and action execution (label/comment/close)."""
-
 from __future__ import annotations
 
 import logging
@@ -38,7 +36,13 @@ def execute_outcome(
     elif decision.outcome == Outcome.REVIEW:
         _execute_review(owner, repo, pr, decision, config, api)
     elif decision.outcome == Outcome.ALLOW:
-        _execute_allow(owner, repo, pr, decision, config, api)
+        # allow is silent, just log it
+        logger.debug(
+            "PR #%d allowed for %s (%s)",
+            pr,
+            decision.contributor.username,
+            decision.reason,
+        )
 
 
 def _execute_deny(
@@ -74,20 +78,6 @@ def _execute_review(
 
     if config.review_action.label:
         api.add_labels(owner, repo, pr, [config.review_action.label])
-
-
-def _execute_allow(
-    owner: str,
-    repo: str,
-    pr: int,
-    decision: Decision,
-    config: Config,
-    api: GitHubAPI,
-) -> None:
-    # Allow is silent by default — no comment or label needed
-    logger.debug(
-        "PR #%d allowed for %s (%s)", pr, decision.contributor.username, decision.reason
-    )
 
 
 def _format_deny_comment(decision: Decision, contact_url: str = "") -> str:

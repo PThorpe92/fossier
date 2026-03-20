@@ -1,5 +1,3 @@
-"""GitHub API client with rate limiting and caching."""
-
 from __future__ import annotations
 
 import json
@@ -82,7 +80,12 @@ class GitHubAPI:
                 raise RateLimitError(reset)
 
     def get(
-        self, path: str, params: dict | None = None, pool: str = "core", *, _retries: int = 0
+        self,
+        path: str,
+        params: dict | None = None,
+        pool: str = "core",
+        *,
+        _retries: int = 0,
     ) -> dict | list | None:
         """GET request with caching, ETag support, and rate limiting."""
         cache_key = f"GET:{path}:{json.dumps(params or {}, sort_keys=True)}"
@@ -126,12 +129,17 @@ class GitHubAPI:
             reset = self._rate_reset.get(pool, 0)
             wait = reset - time.time()
             # Exponential backoff with jitter, capped by rate limit reset time
-            exp_backoff = (2 ** _retries) + random.uniform(0, 1)
+            exp_backoff = (2**_retries) + random.uniform(0, 1)
             backoff = min(wait, exp_backoff) if wait > 0 else exp_backoff
             if backoff > 120:
                 logger.error("Rate limited on %s, wait too long (%.0fs)", path, backoff)
                 return None
-            logger.warning("Rate limited on %s, retrying in %.1fs (attempt %d/2)", path, backoff, _retries + 1)
+            logger.warning(
+                "Rate limited on %s, retrying in %.1fs (attempt %d/2)",
+                path,
+                backoff,
+                _retries + 1,
+            )
             time.sleep(backoff)
             return self.get(path, params, pool, _retries=_retries + 1)
 
@@ -268,9 +276,7 @@ class GitHubAPI:
             return gh_cli.search_prior_interaction(owner, repo, username)
         return False
 
-    def find_fossier_comment(
-        self, owner: str, repo: str, pr_number: int
-    ) -> int | None:
+    def find_fossier_comment(self, owner: str, repo: str, pr_number: int) -> int | None:
         """Find an existing fossier comment on a PR. Returns comment ID or None."""
         data = self.get(
             f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
@@ -306,7 +312,9 @@ class GitHubAPI:
         """Post a comment or update an existing fossier comment (idempotent)."""
         existing_id = self.find_fossier_comment(owner, repo, pr_number)
         if existing_id:
-            logger.debug("Updating existing fossier comment %d on PR #%d", existing_id, pr_number)
+            logger.debug(
+                "Updating existing fossier comment %d on PR #%d", existing_id, pr_number
+            )
             return self.update_comment(owner, repo, existing_id, body)
         return self.post_comment(owner, repo, pr_number, body)
 
@@ -349,9 +357,13 @@ class GitHubAPI:
             return
 
         if "public_repo" not in scope_list and "repo" not in scope_list:
-            logger.warning("Token may be missing 'public_repo' scope — some API calls may fail")
+            logger.warning(
+                "Token may be missing 'public_repo' scope — some API calls may fail"
+            )
         if "read:org" not in scope_list:
-            logger.warning("Token missing 'read:org' scope — org membership signal will be limited")
+            logger.warning(
+                "Token missing 'read:org' scope — org membership signal will be limited"
+            )
 
     def get_user_orgs(self, username: str) -> list[str]:
         """Get public organizations a user belongs to."""
