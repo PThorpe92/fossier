@@ -62,3 +62,4 @@ collaborators_hours = 6
 # api_key = ""                    # Prefer FOSSIER_REGISTRY_API_KEY env var
 # report_denials = false          # Report score-based denials to the registry
 # check_before_scoring = false    # Block users with 3+ registry reports before scoring
+# block_threshold = 3             # Number of registry reports needed to auto-block
