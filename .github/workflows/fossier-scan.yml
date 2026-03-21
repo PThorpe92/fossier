@@ -19,21 +19,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install fossier
-        run: pip install .
+        run: uv pip install --system .
 
       - name: Restore DB cache
         uses: actions/cache@v4
         with:
           path: .fossier.db
-          key: fossier-db-${{ github.repository }}-${{ github.run_id }}
+          key: fossier-db-${{ github.repository }}
           restore-keys: |
-            fossier-db-${{ github.repository }}-
+            fossier-db-${{ github.repository }}
 
       - name: Scan open PRs
         env:

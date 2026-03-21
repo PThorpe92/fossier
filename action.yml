@@ -42,6 +42,9 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v4
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -49,15 +52,15 @@ runs:
 
     - name: Install fossier
       shell: bash
-      run: pip install ${{ github.action_path }}
+      run: uv pip install --system ${{ github.action_path }}
 
     - name: Restore DB cache
       uses: actions/cache@v4
       with:
         path: .fossier.db
-        key: ${{ inputs.db-cache-key }}-${{ github.repository }}-${{ github.run_id }}
+        key: ${{ inputs.db-cache-key }}-${{ github.repository }}
         restore-keys: |
-          ${{ inputs.db-cache-key }}-${{ github.repository }}-
+          ${{ inputs.db-cache-key }}-${{ github.repository }}
 
     - name: Evaluate PR
       id: evaluate
