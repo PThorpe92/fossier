@@ -94,6 +94,7 @@ class Config:
     registry_api_key: str = ""
     registry_report_denials: bool = False
     registry_check_before_scoring: bool = False
+    registry_block_threshold: int = 3  # reports needed to auto-block via registry
 
     flood_threshold: int = 3  # PRs/issues from same unknown user within window = spam flood
     flood_window_hours: int = 1  # time window for flood detection
@@ -233,6 +234,8 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.registry_report_denials = bool(reg["report_denials"])
         if "check_before_scoring" in reg:
             config.registry_check_before_scoring = bool(reg["check_before_scoring"])
+        if "block_threshold" in reg:
+            config.registry_block_threshold = int(reg["block_threshold"])
 
 
 def _apply_env(config: Config) -> None:

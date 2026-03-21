@@ -1,5 +1,3 @@
-"""Shared evaluation pipeline used by both CLI and GitHub Action."""
-
 from __future__ import annotations
 
 import logging
@@ -39,6 +37,44 @@ def _check_ai_authored(resolver: TrustResolver, pr_number: int) -> str | None:
     return None
 
 
+def _make_early_decision(
+    username: str,
+    config,
+    db,
+    tier: TrustTier,
+    outcome: Outcome,
+    reason: str,
+    pr_number: int | None,
+) -> Decision:
+    """Helper for early-exit decisions (AI reject, bot policy, registry block, flood)."""
+    contributor = Contributor(
+        username=username,
+        repo_owner=config.repo_owner,
+        repo_name=config.repo_name,
+        trust_tier=tier,
+        blocked_reason=reason if outcome == Outcome.DENY else None,
+    )
+    decision = Decision(
+        contributor=contributor,
+        trust_tier=tier,
+        outcome=outcome,
+        reason=reason,
+        pr_number=pr_number,
+    )
+    contributor_id = db.upsert_contributor(contributor)
+    db.record_decision(contributor_id, decision, None)
+    return decision
+
+
+def _get_registry_client(config):
+    """Create a RegistryClient if registry is configured, else return None."""
+    if not config.registry_url:
+        return None
+    from fossier.registry_client import RegistryClient
+
+    return RegistryClient(config.registry_url, config.registry_api_key)
+
+
 def evaluate_contributor(
     username: str,
     resolver: TrustResolver,
@@ -50,33 +86,18 @@ def evaluate_contributor(
     Returns the Decision object (does NOT execute outcome actions).
     """
     username = username.lower()
-    api = resolver.api
     config = resolver.config
     db = resolver.db
 
     # Check for AI-authored commits (hard reject if enabled)
-    if resolver.config.reject_ai_authored and pr_number is not None:
+    if config.reject_ai_authored and pr_number is not None:
         agent = _check_ai_authored(resolver, pr_number)
         if agent:
             reason = f"PR contains AI co-authored commits ({agent})"
             logger.info("Rejecting PR #%d: %s", pr_number, reason)
-            contributor = Contributor(
-                username=username,
-                repo_owner=config.repo_owner,
-                repo_name=config.repo_name,
-                trust_tier=TrustTier.UNKNOWN,
-                blocked_reason=reason,
+            return _make_early_decision(
+                username, config, db, TrustTier.UNKNOWN, Outcome.DENY, reason, pr_number
             )
-            decision = Decision(
-                contributor=contributor,
-                trust_tier=TrustTier.UNKNOWN,
-                outcome=Outcome.DENY,
-                reason=reason,
-                pr_number=pr_number,
-            )
-            contributor_id = db.upsert_contributor(contributor)
-            db.record_decision(contributor_id, decision, None)
-            return decision
 
     # Check bot policy before full pipeline
     if config.bot_policy != "score" and is_bot_username(username):
@@ -86,96 +107,99 @@ def evaluate_contributor(
         else:
             tier, outcome = TrustTier.BLOCKED, Outcome.DENY
             reason = "Bot auto-blocked by bot_policy config"
+        return _make_early_decision(
+            username, config, db, tier, outcome, reason, pr_number
+        )
 
-        contributor = Contributor(
-            username=username,
-            repo_owner=config.repo_owner,
-            repo_name=config.repo_name,
-            trust_tier=tier,
-            blocked_reason=reason if outcome == Outcome.DENY else None,
-        )
-        decision = Decision(
-            contributor=contributor,
-            trust_tier=tier,
-            outcome=outcome,
-            reason=reason,
-            pr_number=pr_number,
-        )
-        contributor_id = db.upsert_contributor(contributor)
-        db.record_decision(contributor_id, decision, None)
-        return decision
+    # Create a single registry client for the entire evaluation (if configured)
+    registry = _get_registry_client(config)
+    try:
+        return _run_pipeline(username, resolver, pr_number, registry)
+    finally:
+        if registry:
+            registry.close()
+
+
+def _run_pipeline(
+    username: str,
+    resolver: TrustResolver,
+    pr_number: int | None,
+    registry,
+) -> Decision:
+    """Core pipeline logic with shared registry client."""
+    api = resolver.api
+    config = resolver.config
+    db = resolver.db
 
     # Optional registry pre-check: block users with multiple spam reports
-    if config.registry_url and config.registry_check_before_scoring:
+    if registry and config.registry_check_before_scoring:
         try:
-            from fossier.registry_client import RegistryClient
-
-            reg = RegistryClient(config.registry_url, config.registry_api_key)
-            try:
-                check = reg.check_username(username)
-                if check and check.known and check.report_count >= 3:
-                    reason = f"Known spam in global registry ({check.report_count} reports)"
-                    logger.info("Blocking %s: %s", username, reason)
-                    contributor = Contributor(
-                        username=username,
-                        repo_owner=config.repo_owner,
-                        repo_name=config.repo_name,
-                        trust_tier=TrustTier.BLOCKED,
-                        blocked_reason=reason,
-                    )
-                    decision = Decision(
-                        contributor=contributor,
-                        trust_tier=TrustTier.BLOCKED,
-                        outcome=Outcome.DENY,
-                        reason=reason,
-                        pr_number=pr_number,
-                    )
-                    contributor_id = db.upsert_contributor(contributor)
-                    db.record_decision(contributor_id, decision, None)
-                    return decision
-            finally:
-                reg.close()
+            check = registry.check_username(username)
+            threshold = config.registry_block_threshold
+            if check and check.known and check.report_count >= threshold:
+                reason = f"Known spam in global registry ({check.report_count} reports)"
+                logger.info("Blocking %s: %s", username, reason)
+                return _make_early_decision(
+                    username,
+                    config,
+                    db,
+                    TrustTier.BLOCKED,
+                    Outcome.DENY,
+                    reason,
+                    pr_number,
+                )
         except Exception as e:
             logger.warning("Registry pre-check failed, continuing: %s", e)
 
-    # Flood detection: block users mass-opening PRs/issues
-    if config.flood_threshold > 0:
-        tier_pre, _ = resolver.resolve_tier(username)
-        if tier_pre not in (TrustTier.TRUSTED, TrustTier.KNOWN):
-            since = (
-                datetime.now(timezone.utc) - timedelta(hours=config.flood_window_hours)
-            ).strftime("%Y-%m-%dT%H:%M:%SZ")
-            try:
-                count = api.count_recent_items(
-                    config.repo_owner, config.repo_name, username, since
-                )
-                if count >= config.flood_threshold:
-                    reason = (
-                        f"Flood detected: {count} PRs/issues in "
-                        f"{config.flood_window_hours}h (threshold: {config.flood_threshold})"
-                    )
-                    logger.info("Blocking %s: %s", username, reason)
-                    contributor = Contributor(
-                        username=username,
-                        repo_owner=config.repo_owner,
-                        repo_name=config.repo_name,
-                        trust_tier=TrustTier.BLOCKED,
-                        blocked_reason=reason,
-                    )
-                    decision = Decision(
-                        contributor=contributor,
-                        trust_tier=TrustTier.BLOCKED,
-                        outcome=Outcome.DENY,
-                        reason=reason,
-                        pr_number=pr_number,
-                    )
-                    contributor_id = db.upsert_contributor(contributor)
-                    db.record_decision(contributor_id, decision, None)
-                    return decision
-            except Exception as e:
-                logger.warning("Flood detection failed, continuing: %s", e)
-
+    # Resolve tier once: reused for flood detection and main evaluation
     tier, reason = resolver.resolve_tier(username)
+
+    # Flood detection: block users mass-opening PRs/issues
+    if config.flood_threshold > 0 and tier not in (TrustTier.TRUSTED, TrustTier.KNOWN):
+        since = (
+            datetime.now(timezone.utc) - timedelta(hours=config.flood_window_hours)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            count = api.count_recent_items(
+                config.repo_owner, config.repo_name, username, since
+            )
+            if count >= config.flood_threshold:
+                reason = (
+                    f"Flood detected: {count} PRs/issues in "
+                    f"{config.flood_window_hours}h (threshold: {config.flood_threshold})"
+                )
+                logger.info("Blocking %s: %s", username, reason)
+                # Run scoring to decide whether to also report to registry —
+                # flooding alone isn't enough, the account must also look spammy
+                if registry and config.registry_report_denials:
+                    try:
+                        score_result = score_contributor(
+                            api, config, username, pr_number
+                        )
+                        if score_result.outcome == Outcome.DENY:
+                            registry.report_spam(
+                                username=username,
+                                repo_owner=config.repo_owner,
+                                repo_name=config.repo_name,
+                                score=score_result.total_score,
+                                reason=reason,
+                                pr_number=pr_number,
+                                signals=score_result.signal_breakdown,
+                            )
+                    except Exception as e:
+                        logger.warning("Failed to report flood to registry: %s", e)
+                return _make_early_decision(
+                    username,
+                    config,
+                    db,
+                    TrustTier.BLOCKED,
+                    Outcome.DENY,
+                    reason,
+                    pr_number,
+                )
+        except Exception as e:
+            logger.warning("Flood detection failed, continuing: %s", e)
+
     contributor = Contributor(
         username=username,
         repo_owner=config.repo_owner,
@@ -224,27 +248,21 @@ def evaluate_contributor(
 
     # Report denial to global registry
     if (
-        config.registry_url
+        registry
         and config.registry_report_denials
         and decision.outcome == Outcome.DENY
         and score_result  # only report score-based denials, not tier-based
     ):
         try:
-            from fossier.registry_client import RegistryClient
-
-            reg = RegistryClient(config.registry_url, config.registry_api_key)
-            try:
-                reg.report_spam(
-                    username=username,
-                    repo_owner=config.repo_owner,
-                    repo_name=config.repo_name,
-                    score=score_result.total_score,
-                    reason=decision_reason,
-                    pr_number=pr_number,
-                    signals=score_result.signal_breakdown,
-                )
-            finally:
-                reg.close()
+            registry.report_spam(
+                username=username,
+                repo_owner=config.repo_owner,
+                repo_name=config.repo_name,
+                score=score_result.total_score,
+                reason=decision_reason,
+                pr_number=pr_number,
+                signals=score_result.signal_breakdown,
+            )
         except Exception as e:
             logger.warning("Failed to report to registry: %s", e)
 
