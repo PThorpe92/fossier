@@ -213,12 +213,34 @@ def test_registry_known_spam_blocks(config, db, api):
     mock_client = MagicMock()
     mock_client.check_username.return_value = RegistryCheckResult(known=True, report_count=5)
 
-    with patch("fossier.registry_client.RegistryClient", return_value=mock_client):
+    with patch("fossier.pipeline._get_registry_client", return_value=mock_client):
         resolver = TrustResolver(config, db, api)
         decision = evaluate_contributor("spammer", resolver, pr_number=1)
 
     assert decision.outcome == Outcome.DENY
     assert "registry" in decision.reason.lower()
+    mock_client.close.assert_called_once()
+
+
+def test_registry_block_threshold_configurable(config, db, api):
+    """Registry block threshold should be configurable."""
+    config.registry_url = "https://registry.example.com"
+    config.registry_check_before_scoring = True
+    config.registry_block_threshold = 5
+
+    from unittest.mock import patch
+    from fossier.registry_client import RegistryCheckResult
+
+    mock_client = MagicMock()
+    # 3 reports — below threshold of 5
+    mock_client.check_username.return_value = RegistryCheckResult(known=True, report_count=3)
+
+    with patch("fossier.pipeline._get_registry_client", return_value=mock_client):
+        resolver = TrustResolver(config, db, api)
+        decision = evaluate_contributor("user", resolver)
+
+    # Should NOT be blocked — 3 < 5 threshold
+    assert "registry" not in decision.reason.lower()
     mock_client.close.assert_called_once()
 
 
@@ -232,7 +254,7 @@ def test_registry_check_failure_continues(config, db, api):
     mock_client = MagicMock()
     mock_client.check_username.side_effect = Exception("connection refused")
 
-    with patch("fossier.registry_client.RegistryClient", return_value=mock_client):
+    with patch("fossier.pipeline._get_registry_client", return_value=mock_client):
         resolver = TrustResolver(config, db, api)
         decision = evaluate_contributor("newuser", resolver)
 
@@ -265,7 +287,7 @@ def test_registry_reports_denial(config, db, api):
     mock_client = MagicMock()
     mock_client.report_spam.return_value = True
 
-    with patch("fossier.registry_client.RegistryClient", return_value=mock_client):
+    with patch("fossier.pipeline._get_registry_client", return_value=mock_client):
         resolver = TrustResolver(config, db, api)
         decision = evaluate_contributor("spambot", resolver, pr_number=99)
 

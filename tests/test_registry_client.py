@@ -19,17 +19,18 @@ def client():
     # no need to close since client is mocked
 
 
-def _mock_response(status=200, json_data=None):
+def _mock_response(status=200, json_data=None, headers=None):
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = status
     resp.json.return_value = json_data or {}
     resp.text = json.dumps(json_data or {})
+    resp.headers = headers or {}
     return resp
 
 
 class TestCheckUsername:
     def test_known_spam(self, client):
-        client._client.get.return_value = _mock_response(
+        client._client.request.return_value = _mock_response(
             json_data={"known": True, "report_count": 5}
         )
         result = client.check_username("spammer")
@@ -38,7 +39,7 @@ class TestCheckUsername:
         assert result.report_count == 5
 
     def test_unknown_user(self, client):
-        client._client.get.return_value = _mock_response(
+        client._client.request.return_value = _mock_response(
             json_data={"known": False, "report_count": 0}
         )
         result = client.check_username("gooduser")
@@ -47,19 +48,19 @@ class TestCheckUsername:
         assert result.report_count == 0
 
     def test_server_error(self, client):
-        client._client.get.return_value = _mock_response(status=500)
+        client._client.request.return_value = _mock_response(status=404)
         result = client.check_username("user")
         assert result is None
 
     def test_network_error(self, client):
-        client._client.get.side_effect = httpx.ConnectError("Connection refused")
+        client._client.request.side_effect = httpx.ConnectError("Connection refused")
         result = client.check_username("user")
         assert result is None
 
 
 class TestReportSpam:
     def test_successful_report(self, client):
-        client._client.post.return_value = _mock_response(
+        client._client.request.return_value = _mock_response(
             status=201, json_data={"id": 1}
         )
         result = client.report_spam(
@@ -70,13 +71,14 @@ class TestReportSpam:
             reason="Score: 25.0",
         )
         assert result is True
-        call_args = client._client.post.call_args
-        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        call_args = client._client.request.call_args
+        assert call_args[0][0] == "POST"
+        payload = call_args[1].get("json") or call_args.kwargs.get("json")
         assert payload["username"] == "spammer"
         assert payload["score"] == 25.0
 
     def test_report_with_signals(self, client):
-        client._client.post.return_value = _mock_response(status=201)
+        client._client.request.return_value = _mock_response(status=201)
         signals = {"account_age": {"normalized": 0.1, "weight": 0.15}}
         result = client.report_spam(
             username="spammer",
@@ -90,7 +92,7 @@ class TestReportSpam:
         assert result is True
 
     def test_report_auth_failure(self, client):
-        client._client.post.return_value = _mock_response(status=401)
+        client._client.request.return_value = _mock_response(status=401)
         result = client.report_spam(
             username="user", repo_owner="o", repo_name="r",
             score=30.0, reason="test",
@@ -98,7 +100,7 @@ class TestReportSpam:
         assert result is False
 
     def test_report_network_error(self, client):
-        client._client.post.side_effect = httpx.ConnectError("Connection refused")
+        client._client.request.side_effect = httpx.ConnectError("Connection refused")
         result = client.report_spam(
             username="user", repo_owner="o", repo_name="r",
             score=30.0, reason="test",
