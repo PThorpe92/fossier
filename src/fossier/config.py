@@ -78,7 +78,9 @@ class Config:
     github_token: str = ""
 
     thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
-    signal_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    signal_weights: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_WEIGHTS)
+    )
     deny_action: DenyActionConfig = field(default_factory=DenyActionConfig)
     review_action: ReviewActionConfig = field(default_factory=ReviewActionConfig)
     allow_action: AllowActionConfig = field(default_factory=AllowActionConfig)
@@ -96,7 +98,9 @@ class Config:
     registry_check_before_scoring: bool = False
     registry_block_threshold: int = 3  # reports needed to auto-block via registry
 
-    flood_threshold: int = 3  # PRs/issues from same unknown user within window = spam flood
+    flood_threshold: int = (
+        3  # PRs/issues from same unknown user within window = spam flood
+    )
     flood_window_hours: int = 1  # time window for flood detection
 
     verbose: bool = False
@@ -230,6 +234,10 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.registry_url = str(reg["url"])
         if "api_key" in reg:
             config.registry_api_key = str(reg["api_key"])
+            logger.warning(
+                "Warning: Registry API key found and loaded from config file in plain text, prefer FOSSIER_REGISTRY_API_KEY",
+                len(config.registry_api_key),
+            )
         if "report_denials" in reg:
             config.registry_report_denials = bool(reg["report_denials"])
         if "check_before_scoring" in reg:
@@ -290,9 +298,7 @@ def _normalize_weights(config: Config) -> None:
 #   git@github.com:owner/repo.git
 #   https://github.com/owner/repo.git
 #   https://github.com/owner/repo
-_GIT_REMOTE_RE = re.compile(
-    r"(?:github\.com[:/])([^/]+)/([^/\s]+?)(?:\.git)?$"
-)
+_GIT_REMOTE_RE = re.compile(r"(?:github\.com[:/])([^/]+)/([^/\s]+?)(?:\.git)?$")
 
 
 def _detect_git_root() -> Path | None:
@@ -300,7 +306,9 @@ def _detect_git_root() -> Path | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             return Path(result.stdout.strip())
@@ -314,7 +322,9 @@ def _parse_git_remote(repo_root: Path) -> tuple[str, str]:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             m = _GIT_REMOTE_RE.search(result.stdout.strip())

@@ -69,6 +69,8 @@ Trusted and known contributors are exempt from flood detection. This check runs 
 
 Fossier can automatically reject PRs that contain commits co-authored by AI agents. When `reject_ai_authored` is enabled, commit messages are scanned for `Co-Authored-By` lines matching known AI tools (Claude, Copilot, GPT, Cursor, Codeium, Windsurf, Devin, Gemini, and others). If any match is found, the PR is immediately denied regardless of trust tier or score.
 
+**NOTE:** If you have the global registry access enabled and you reject LLM co-authored commits, it will *not* report the user to the registry as spam. Please do not manually send spam reports __only__ for a user submitting commits which are co-authored by LLM's. The registry is meant to collect incidents of legitimate PR spam and low-effort slop, please use your best judgement when manually submitting spam incidents and keep in mind that not everyone wants to reject any and all AI usage in their repositories.
+
 ```toml
 [trust]
 reject_ai_authored = true  # default: false
@@ -160,7 +162,7 @@ fossier db prune
 
 ### Bulk Scan (workflow_dispatch)
 
-`fossier init` generates a `fossier-scan.yml` workflow you can trigger from the GitHub Actions tab. It evaluates all open PRs at once — closing spam, labeling borderline PRs for review, and passing trusted contributors through. Run with the "dry run" option to preview without taking action.
+`fossier init` generates a `fossier-scan.yml` workflow you can trigger from the GitHub Actions tab. It evaluates all open PRs at once - closing spam, labeling borderline PRs for review, and passing trusted contributors through. Run with the "dry run" option to preview without taking action.
 
 Locally, the same command works if you have the `gh` CLI authenticated:
 

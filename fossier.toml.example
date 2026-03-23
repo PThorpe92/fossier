@@ -59,7 +59,7 @@ collaborators_hours = 6
 [registry]
 # Global fossier spam registry: share spam intelligence across repositories
 # url = "https://registry.fossier.io"
-# api_key = ""                    # Prefer FOSSIER_REGISTRY_API_KEY env var
+# for api key: use FOSSIER_REGISTRY_API_KEY env var
 # report_denials = false          # Report score-based denials to the registry
 # check_before_scoring = false    # Block users with 3+ registry reports before scoring
 # block_threshold = 3             # Number of registry reports needed to auto-block
