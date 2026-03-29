@@ -235,8 +235,7 @@ def _apply_toml(config: Config, path: Path) -> None:
         if "api_key" in reg:
             config.registry_api_key = str(reg["api_key"])
             logger.warning(
-                "Warning: Registry API key found and loaded from config file in plain text, prefer FOSSIER_REGISTRY_API_KEY",
-                len(config.registry_api_key),
+                "Warning: Registry API key found and loaded from config file in plain text, prefer FOSSIER_REGISTRY_API_KEY"
             )
         if "report_denials" in reg:
             config.registry_report_denials = bool(reg["report_denials"])
