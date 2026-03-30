@@ -1,13 +1,22 @@
 [project]
 name = "fossier"
-version = "0.1.0"
+version = "0.0.1"
 description = "GitHub spam prevention system for open source repositories"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
+authors = [
+    { name = "PThorpe92", email = "preston@turso.tech" },
+]
 dependencies = [
     "pyturso",
     "httpx>=0.27",
 ]
+
+[project.urls]
+Homepage = "https://github.com/PThorpe92/fossier"
+Repository = "https://github.com/PThorpe92/fossier"
+Issues = "https://github.com/PThorpe92/fossier/issues"
 
 [project.scripts]
 fossier = "fossier.cli:main"
