@@ -260,6 +260,24 @@ class GitHubAPI:
             return gh_cli.search_open_prs(username)
         return -1
 
+    def search_closed_prs(self, username: str) -> int:
+        """Count of closed (unmerged) PRs by user across all repos."""
+        data = self.get(
+            "/search/issues",
+            params={"q": f"author:{username} is:pr is:unmerged is:closed", "per_page": "1"},
+            pool="search",
+        )
+        if data and isinstance(data, dict):
+            count = data.get("total_count", -1)
+            if count >= 0:
+                return count
+
+        # Fallback to gh CLI
+        if self._gh_available:
+            logger.debug("Falling back to `gh search prs` for closed PR count")
+            return gh_cli.search_closed_prs(username)
+        return -1
+
     def search_prior_interaction(self, owner: str, repo: str, username: str) -> bool:
         """Check if user has any prior issues/comments on this repo."""
         data = self.get(

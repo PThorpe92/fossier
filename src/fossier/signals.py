@@ -73,6 +73,7 @@ def collect_signals(
         ("follower_ratio", _signal_follower_ratio),
         ("bot_signals", _signal_bot),
         ("open_prs_elsewhere", _signal_open_prs),
+        ("closed_prs_elsewhere", _signal_closed_prs),
         ("prior_interaction", _signal_prior_interaction),
         ("pr_content", _signal_pr_content),
         ("commit_email", _signal_commit_email),
@@ -192,6 +193,20 @@ def _signal_open_prs(
 
     normalized = max(1.0 - count / 15, 0.0)
     return SignalResult("open_prs_elsewhere", count, normalized, 0)
+
+
+def _signal_closed_prs(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
+) -> SignalResult:
+    """High number of closed (rejected) PRs elsewhere is a strong spam signal."""
+    count = api.search_closed_prs(username)
+    if count < 0:
+        return SignalResult("closed_prs_elsewhere", 0, 0.5, 0, success=False, error="Search failed")
+
+    # 0 closed PRs = 1.0 (trustworthy), 10+ closed = 0.0 (very suspicious)
+    normalized = max(1.0 - count / 10, 0.0)
+    return SignalResult("closed_prs_elsewhere", count, normalized, 0)
 
 
 def _signal_prior_interaction(
