@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from fossier.signals import (
     _signal_account_age,
     _signal_bot,
+    _signal_closed_prs,
     _signal_follower_ratio,
     _signal_open_prs,
     _signal_pr_content,
@@ -15,11 +16,12 @@ from fossier.signals import (
 )
 
 
-def _mock_api(user_data=None, pr_files=None, search_prs=-1, prior=False):
+def _mock_api(user_data=None, pr_files=None, search_prs=-1, closed_prs=0, prior=False):
     api = MagicMock()
     api.get_user.return_value = user_data
     api.get_pr_files.return_value = pr_files or []
     api.search_open_prs.return_value = search_prs
+    api.search_closed_prs.return_value = closed_prs
     api.search_prior_interaction.return_value = prior
     return api
 
@@ -168,10 +170,11 @@ def test_collect_signals_returns_all():
         {"commit": {"verification": {"verified": True}}},
     ]
     results = collect_signals(api, "user", "o", "r")
-    assert len(results) == 13
+    assert len(results) == 14
     names = {r.name for r in results}
     assert "account_age" in names
     assert "bot_signals" in names
+    assert "closed_prs_elsewhere" in names
     assert "commit_email" in names
     assert "pr_description" in names
     assert "repo_stars" in names
@@ -241,3 +244,31 @@ def test_pr_description_emoji_penalty():
     }
     clean_result = _signal_pr_description(api2, "user", "o", "r", 1)
     assert result.normalized < clean_result.normalized
+
+
+def test_closed_prs_none():
+    api = _mock_api(closed_prs=0)
+    result = _signal_closed_prs(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 1.0
+
+
+def test_closed_prs_few():
+    api = _mock_api(closed_prs=3)
+    result = _signal_closed_prs(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.7
+
+
+def test_closed_prs_many():
+    api = _mock_api(closed_prs=15)
+    result = _signal_closed_prs(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.0
+
+
+def test_closed_prs_search_failed():
+    api = _mock_api(closed_prs=-1)
+    result = _signal_closed_prs(api, "user", "o", "r", None)
+    assert not result.success
+    assert result.normalized == 0.5

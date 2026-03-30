@@ -47,6 +47,7 @@ def api():
         "email": "user@example.com",
     }
     api.search_open_prs.return_value = 2
+    api.search_closed_prs.return_value = 0
     api.search_prior_interaction.return_value = False
     api.get_pr_files.return_value = []
     api.get_user_orgs.return_value = []
