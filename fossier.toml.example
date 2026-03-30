@@ -14,9 +14,10 @@ min_confidence = 0.5  # Below this → force REVIEW regardless of score
 [weights]
 # Signal weights (auto-normalized to sum to 1.0)
 account_age = 0.11
-public_repos = 0.07
+public_repos = 0.02
 contribution_history = 0.07
-open_prs_elsewhere = 0.11
+open_prs_elsewhere = 0.05
+closed_prs_elsewhere = 0.11
 prior_interaction = 0.11
 pr_content = 0.11
 follower_ratio = 0.07
