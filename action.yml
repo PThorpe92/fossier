@@ -24,6 +24,14 @@ inputs:
     description: "URL where contributors can reach maintainers to appeal (e.g. Discord, Matrix, email)"
     required: false
     default: ""
+  registry-api-key:
+    description: "API key for the Fossier global registry (report/check known spammers)"
+    required: false
+    default: ""
+  registry-url:
+    description: "Custom registry URL (default: https://registry.fossier.io)"
+    required: false
+    default: ""
 
 outputs:
   outcome:
@@ -69,6 +77,8 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         FOSSIER_FAIL_ON_DENY: ${{ inputs.fail-on-deny }}
         FOSSIER_CONTACT_URL: ${{ inputs.contact-url }}
+        FOSSIER_REGISTRY_API_KEY: ${{ inputs.registry-api-key }}
+        FOSSIER_REGISTRY_URL: ${{ inputs.registry-url }}
       run: |
         set +e
         python -m fossier.action

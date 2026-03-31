@@ -105,6 +105,8 @@ jobs:
         with:
           contact-url: "https://discord.gg/your-server"
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: connect to the global spam registry
+          # registry-api-key: ${{ secrets.FOSSIER_REGISTRY_API_KEY }}
 
       - name: Handle result
         if: steps.fossier.outputs.outcome == 'deny'
