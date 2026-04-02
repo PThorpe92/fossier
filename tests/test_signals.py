@@ -6,6 +6,8 @@ from fossier.signals import (
     _signal_account_age,
     _signal_bot,
     _signal_closed_prs,
+    _signal_commit_verification,
+    _signal_contributor_stars,
     _signal_follower_ratio,
     _signal_open_prs,
     _signal_pr_content,
@@ -169,8 +171,9 @@ def test_collect_signals_returns_all():
     api.get_pr_commits.return_value = [
         {"commit": {"verification": {"verified": True}}},
     ]
+    api.get_user_repos.return_value = [{"stargazers_count": 10}]
     results = collect_signals(api, "user", "o", "r")
-    assert len(results) == 14
+    assert len(results) == 15
     names = {r.name for r in results}
     assert "account_age" in names
     assert "bot_signals" in names
@@ -180,6 +183,7 @@ def test_collect_signals_returns_all():
     assert "repo_stars" in names
     assert "org_membership" in names
     assert "commit_verification" in names
+    assert "contributor_stars" in names
 
 
 def test_collect_signals_fetches_user_once():
@@ -204,6 +208,7 @@ def test_collect_signals_fetches_user_once():
     api.get_pr_commits.return_value = [
         {"commit": {"verification": {"verified": True}}},
     ]
+    api.get_user_repos.return_value = [{"stargazers_count": 10}]
     collect_signals(api, "user", "o", "r")
     assert api.get_user.call_count == 1
 
@@ -272,3 +277,65 @@ def test_closed_prs_search_failed():
     result = _signal_closed_prs(api, "user", "o", "r", None)
     assert not result.success
     assert result.normalized == 0.5
+
+
+def test_contributor_stars_many():
+    api = _mock_api()
+    api.get_user_repos.return_value = [
+        {"stargazers_count": 30},
+        {"stargazers_count": 25},
+    ]
+    result = _signal_contributor_stars(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 1.0
+
+
+def test_contributor_stars_few():
+    api = _mock_api()
+    api.get_user_repos.return_value = [
+        {"stargazers_count": 5},
+    ]
+    result = _signal_contributor_stars(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.1
+
+
+def test_contributor_stars_none():
+    api = _mock_api()
+    api.get_user_repos.return_value = []
+    result = _signal_contributor_stars(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.2
+
+
+def test_commit_verification_signed_but_unverified():
+    """Commits signed with an unknown key should get partial credit, not zero."""
+    api = _mock_api()
+    api.get_pr_commits.return_value = [
+        {"commit": {"verification": {"verified": False, "reason": "unknown_key"}}},
+    ]
+    result = _signal_commit_verification(api, "user", "o", "r", 1)
+    assert result.success
+    # Should get partial credit (0.5 effective), not treated as unsigned
+    assert result.normalized > 0.3  # > floor for unsigned
+    assert result.normalized < 1.0  # < fully verified
+
+
+def test_commit_verification_fully_verified():
+    api = _mock_api()
+    api.get_pr_commits.return_value = [
+        {"commit": {"verification": {"verified": True, "reason": "valid"}}},
+    ]
+    result = _signal_commit_verification(api, "user", "o", "r", 1)
+    assert result.success
+    assert result.normalized == 1.0
+
+
+def test_commit_verification_unsigned():
+    api = _mock_api()
+    api.get_pr_commits.return_value = [
+        {"commit": {"verification": {"verified": False, "reason": "unsigned"}}},
+    ]
+    result = _signal_commit_verification(api, "user", "o", "r", 1)
+    assert result.success
+    assert result.normalized == 0.3  # floor for no signing
