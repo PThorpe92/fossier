@@ -405,6 +405,23 @@ class GitHubAPI:
             return []
         return data
 
+    def get_user_repos(self, username: str) -> list[dict]:
+        """Get public repositories owned by a user (paginated)."""
+        repos: list[dict] = []
+        page = 1
+        while True:
+            data = self.get(
+                f"/users/{username}/repos",
+                params={"type": "owner", "per_page": "100", "page": str(page)},
+            )
+            if not data or not isinstance(data, list):
+                break
+            repos.extend(data)
+            if len(data) < 100:
+                break
+            page += 1
+        return repos
+
     def count_recent_items(
         self, owner: str, repo: str, username: str, since_iso: str
     ) -> int:

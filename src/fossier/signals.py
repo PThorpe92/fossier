@@ -81,6 +81,7 @@ def collect_signals(
         ("repo_stars", _signal_repo_stars),
         ("org_membership", _signal_org_membership),
         ("commit_verification", _signal_commit_verification),
+        ("contributor_stars", _signal_contributor_stars),
     ]
 
     results = []
@@ -398,13 +399,41 @@ def _signal_commit_verification(
         return SignalResult("commit_verification", "no_commits", 0.5, 0, success=False, error="No commits found")
 
     total = len(commits)
-    verified = sum(
-        1 for c in commits
-        if c.get("commit", {}).get("verification", {}).get("verified", False)
-    )
+    verified = 0
+    signed_unverified = 0
+    for c in commits:
+        v = c.get("commit", {}).get("verification", {})
+        if v.get("verified", False):
+            verified += 1
+        elif v.get("reason", "unsigned") != "unsigned":
+            # Commit has a signature but GitHub can't fully verify it
+            # (e.g. key not uploaded, email mismatch, expired key)
+            signed_unverified += 1
 
-    ratio = verified / total
+    # Full credit for verified, half credit for signed-but-unverifiable
+    effective = verified + (signed_unverified * 0.5)
+    ratio = effective / total
     # All signed = 1.0, none signed = 0.3 (not signing isn't strongly negative)
     normalized = 0.3 + (ratio * 0.7)
-    raw = {"total_commits": total, "verified": verified, "ratio": round(ratio, 2)}
+    raw = {
+        "total_commits": total,
+        "verified": verified,
+        "signed_unverified": signed_unverified,
+        "ratio": round(ratio, 2),
+    }
     return SignalResult("commit_verification", str(raw), round(normalized, 3), 0)
+
+
+def _signal_contributor_stars(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
+) -> SignalResult:
+    """Total stars across contributor's own repositories. More stars = more trustworthy."""
+    repos = api.get_user_repos(username)
+    if not repos:
+        return SignalResult("contributor_stars", 0, 0.2, 0)
+
+    total_stars = sum(r.get("stargazers_count", 0) for r in repos)
+    # 50+ total stars across all owned repos = max trust for this signal
+    normalized = min(total_stars / 50, 1.0)
+    return SignalResult("contributor_stars", total_stars, round(normalized, 3), 0)

@@ -33,6 +33,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "repo_stars": 0.05,
     "org_membership": 0.04,
     "commit_verification": 0.05,
+    "contributor_stars": 0.05,
 }
 
 
