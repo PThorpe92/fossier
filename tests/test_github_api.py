@@ -211,8 +211,8 @@ class TestHelperMethods:
                 {"id": 200, "body": "## Fossier: PR Auto-Closed\ndetails..."},
             ]
         )
-        comment_id = api.find_fossier_comment("o", "r", 1)
-        assert comment_id == 200
+        result = api.find_fossier_comment("o", "r", 1)
+        assert result == (200, "## Fossier: PR Auto-Closed\ndetails...")
 
     def test_find_fossier_comment_not_found(self, api):
         api._client.get.return_value = _mock_response(
@@ -220,8 +220,8 @@ class TestHelperMethods:
                 {"id": 100, "body": "just a regular comment"},
             ]
         )
-        comment_id = api.find_fossier_comment("o", "r", 1)
-        assert comment_id is None
+        result = api.find_fossier_comment("o", "r", 1)
+        assert result is None
 
     def test_post_or_update_comment_creates_new(self, api):
         # No existing fossier comment
@@ -233,7 +233,7 @@ class TestHelperMethods:
         assert result["id"] == 300
 
     def test_post_or_update_comment_updates_existing(self, api):
-        # Existing fossier comment
+        # Existing fossier comment with different body
         api._client.get.return_value = _mock_response(
             json_data=[{"id": 200, "body": "## Fossier: old content"}]
         )
@@ -243,6 +243,16 @@ class TestHelperMethods:
         result = api.post_or_update_comment("o", "r", 1, "## Fossier: updated")
         api._client.patch.assert_called_once()
         assert result["id"] == 200
+
+    def test_post_or_update_comment_skips_identical(self, api):
+        # Existing fossier comment with same body — should not update
+        body = "## Fossier: Manual Review Requested\ndetails"
+        api._client.get.return_value = _mock_response(
+            json_data=[{"id": 200, "body": body}]
+        )
+        result = api.post_or_update_comment("o", "r", 1, body)
+        api._client.patch.assert_not_called()
+        assert result is None
 
     def test_get_user_orgs(self, api):
         api._client.get.return_value = _mock_response(

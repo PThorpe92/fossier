@@ -251,8 +251,18 @@ class CommentCommandHandler:
         body = format_score_reply(score_result, pr_author)
         self.api.post_comment(self.owner, self.repo, self.pr_number, body)
 
-    def _handle_vouch_all(self, _pr_author: str, _args: str) -> None:
+    def _handle_vouch_all(self, _pr_author: str, args: str) -> None:
         """Vouch for all existing repo contributors."""
+        limit = 0
+        if args.strip():
+            try:
+                limit = int(args.strip())
+            except ValueError:
+                self._reply_error(
+                    "Usage: `/fossier vouch-all [limit]`. Limit must be a number."
+                )
+                return
+
         contributors = self.api.get_contributors(self.owner, self.repo)
         if not contributors:
             self.api.post_comment(
@@ -262,6 +272,9 @@ class CommentCommandHandler:
                 "**Fossier:** No contributors found for this repository.",
             )
             return
+
+        if limit > 0:
+            contributors = contributors[:limit]
 
         existing = parse_vouched(self.config.repo_root)
         added = 0

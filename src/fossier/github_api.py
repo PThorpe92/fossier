@@ -295,8 +295,10 @@ class GitHubAPI:
             return gh_cli.search_prior_interaction(owner, repo, username)
         return False
 
-    def find_fossier_comment(self, owner: str, repo: str, pr_number: int) -> int | None:
-        """Find an existing fossier comment on a PR. Returns comment ID or None."""
+    def find_fossier_comment(
+        self, owner: str, repo: str, pr_number: int
+    ) -> tuple[int, str] | None:
+        """Find an existing fossier comment on a PR. Returns (comment_id, body) or None."""
         data = self.get(
             f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
             params={"per_page": "100"},
@@ -306,7 +308,7 @@ class GitHubAPI:
         for comment in data:
             body = comment.get("body", "")
             if body.startswith("## Fossier:"):
-                return comment["id"]
+                return comment["id"], body
         return None
 
     def update_comment(
@@ -328,9 +330,21 @@ class GitHubAPI:
     def post_or_update_comment(
         self, owner: str, repo: str, pr_number: int, body: str
     ) -> dict | None:
-        """Post a comment or update an existing fossier comment (idempotent)."""
-        existing_id = self.find_fossier_comment(owner, repo, pr_number)
-        if existing_id:
+        """Post a comment or update an existing fossier comment (idempotent).
+
+        Skips the update if the existing comment body is identical to avoid
+        unnecessary notifications.
+        """
+        existing = self.find_fossier_comment(owner, repo, pr_number)
+        if existing:
+            existing_id, existing_body = existing
+            if existing_body.strip() == body.strip():
+                logger.debug(
+                    "Fossier comment %d on PR #%d is unchanged, skipping update",
+                    existing_id,
+                    pr_number,
+                )
+                return None
             logger.debug(
                 "Updating existing fossier comment %d on PR #%d", existing_id, pr_number
             )

@@ -135,6 +135,10 @@ def _build_parser() -> argparse.ArgumentParser:
         parents=[common],
         help="Vouch for all existing repo contributors",
     )
+    p_vouch_all.add_argument(
+        "--limit", "-n", type=int, default=0,
+        help="Only vouch for the top N contributors (by commit count). 0 = all",
+    )
     p_vouch_all.set_defaults(func=_cmd_vouch_all)
 
     # init
@@ -400,6 +404,10 @@ def _cmd_vouch_all(args: argparse.Namespace) -> int:
         if not contributors:
             print("No contributors found for this repository")
             return EXIT_ALLOW
+
+        limit = getattr(args, "limit", 0)
+        if limit > 0:
+            contributors = contributors[:limit]
 
         existing = parse_vouched(config.repo_root)
         added = 0
