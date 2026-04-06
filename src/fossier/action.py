@@ -32,6 +32,38 @@ class GithubAction:
         with open(event_path) as f:
             event = json.load(f)
 
+        event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+        if event_name == "issue_comment":
+            return self._handle_comment(event)
+        return self._handle_pr(event)
+
+    def _handle_comment(self, event: dict) -> int:
+        """Handle an issue_comment event — dispatch /fossier commands."""
+        # Only process comments on PRs, not issues
+        if "pull_request" not in event.get("issue", {}):
+            return 0
+
+        from fossier.comment_commands import CommentCommandHandler, parse_command
+
+        # Quick check: skip if no /fossier command in the comment
+        comment_body = event.get("comment", {}).get("body", "")
+        if not parse_command(comment_body):
+            return 0
+
+        config = load_config()
+        db = Database(config.db_path)
+        db.connect()
+        api = GitHubAPI(config, db)
+
+        try:
+            handler = CommentCommandHandler(config, api, db, event)
+            return handler.run()
+        finally:
+            api.close()
+            db.close()
+
+    def _handle_pr(self, event: dict) -> int:
+        """Handle a pull_request event — the original evaluation flow."""
         pr = event.get("pull_request") or event.get("number")
         if isinstance(pr, dict):
             pr_number = pr["number"]

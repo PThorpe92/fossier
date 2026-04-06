@@ -89,3 +89,15 @@ runs:
           exit 1
         fi
         exit 0
+
+    - name: Commit trust changes
+      if: env.FOSSIER_TRUST_CHANGED == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        git config user.name "fossier[bot]"
+        git config user.email "fossier[bot]@users.noreply.github.com"
+        git add VOUCHED.td .github/VOUCHED.td 2>/dev/null || true
+        git diff --cached --quiet || git commit -m "fossier: update VOUCHED.td [skip ci]"
+        git push

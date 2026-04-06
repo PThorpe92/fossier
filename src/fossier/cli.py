@@ -14,7 +14,7 @@ from fossier.outcomes import execute_outcome, format_decision_json, format_decis
 from fossier.pipeline import evaluate_contributor
 from fossier.scoring import score_contributor
 from fossier.trust import TrustResolver
-from fossier.trustdown import add_denounce, add_vouch
+from fossier.trustdown import add_denounce, add_vouch, parse_vouched
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_reject.add_argument("--reason", "-m", required=True, help="Reason for rejection")
     p_reject.add_argument("--pr", type=int, help="Associated PR number (optional)")
     p_reject.set_defaults(func=_cmd_reject)
+
+    # vouch-all
+    p_vouch_all = sub.add_parser(
+        "vouch-all",
+        parents=[common],
+        help="Vouch for all existing repo contributors",
+    )
+    p_vouch_all.set_defaults(func=_cmd_vouch_all)
 
     # init
     p_init = sub.add_parser(
@@ -372,6 +380,47 @@ def _cmd_reject(args: argparse.Namespace) -> int:
         )
 
     return EXIT_ALLOW
+
+
+def _cmd_vouch_all(args: argparse.Namespace) -> int:
+    """Vouch for all existing contributors to the repository."""
+    config = load_config(cli_overrides=_get_config(args))
+    db = Database(config.db_path)
+    db.connect()
+    api = GitHubAPI(config, db)
+
+    try:
+        if not config.repo_owner or not config.repo_name:
+            logger.error(
+                "Repository not configured. Use --repo owner/repo or set up fossier.toml"
+            )
+            return EXIT_ERROR
+
+        contributors = api.get_contributors(config.repo_owner, config.repo_name)
+        if not contributors:
+            print("No contributors found for this repository")
+            return EXIT_ALLOW
+
+        existing = parse_vouched(config.repo_root)
+        added = 0
+        for username in contributors:
+            if username in existing.vouched:
+                continue
+            if config.dry_run:
+                print(f"  Would vouch for {username}")
+            else:
+                add_vouch(config.repo_root, username)
+            added += 1
+
+        already = len(contributors) - added
+        if config.dry_run:
+            print(f"\nDry run: would vouch for {added} new contributor(s) ({already} already vouched)")
+        else:
+            print(f"Vouched for {added} new contributor(s) ({already} already vouched)")
+        return EXIT_ALLOW
+    finally:
+        api.close()
+        db.close()
 
 
 def _cmd_db_migrate(args: argparse.Namespace) -> int:

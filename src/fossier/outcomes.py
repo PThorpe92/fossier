@@ -179,6 +179,54 @@ def _format_score_breakdown(score: ScoreResult) -> list[str]:
     return lines
 
 
+def format_approved_comment(approver: str, decision: Decision | None = None) -> str:
+    """Format comment for a maintainer-approved PR."""
+    lines = [
+        "## Fossier: Approved by Maintainer",
+        "",
+        f"Approved by `@{approver}`.",
+    ]
+    if decision and decision.score_result:
+        lines.append("")
+        lines.extend(_format_score_breakdown(decision.score_result))
+    return "\n".join(lines)
+
+
+def format_rejected_comment(
+    rejector: str, reason: str, decision: Decision | None = None
+) -> str:
+    """Format comment for a maintainer-rejected PR."""
+    lines = [
+        "## Fossier: Rejected by Maintainer",
+        "",
+        f"Rejected by `@{rejector}`: {reason}",
+    ]
+    if decision and decision.score_result:
+        lines.append("")
+        lines.extend(_format_score_breakdown(decision.score_result))
+    return "\n".join(lines)
+
+
+def format_vouched_comment(voucher: str, pr_author: str) -> str:
+    """Format comment for a vouched-and-approved PR."""
+    return "\n".join([
+        "## Fossier: Vouched and Approved",
+        "",
+        f"`@{voucher}` vouched for `@{pr_author}`. "
+        "Future PRs from this contributor will be trusted.",
+    ])
+
+
+def format_score_reply(score: ScoreResult, username: str) -> str:
+    """Format a standalone score breakdown for a reply comment."""
+    lines = [
+        f"## Fossier: Score Breakdown for @{username}",
+        "",
+    ]
+    lines.extend(_format_score_breakdown(score))
+    return "\n".join(lines)
+
+
 def format_decision_text(decision: Decision) -> str:
     """Format a decision for CLI text output."""
     lines = [

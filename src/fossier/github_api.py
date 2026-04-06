@@ -5,6 +5,7 @@ import logging
 import random
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import httpx
 
@@ -435,3 +436,71 @@ class GitHubAPI:
         if data and isinstance(data, dict):
             return data.get("total_count", 0)
         return 0
+
+    def delete(self, path: str) -> bool:
+        """DELETE request. Returns True on success (200/204)."""
+        self._check_rate_limit("core")
+        try:
+            response = self._client.delete(path)
+        except httpx.HTTPError as e:
+            logger.error("HTTP error for DELETE %s: %s", path, e)
+            return False
+        self._update_rate_limits(response, "core")
+        if response.status_code in (200, 204):
+            return True
+        if response.status_code == 404:
+            logger.debug("DELETE 404 for %s (already removed?)", path)
+            return True
+        logger.error("API error %d for DELETE %s", response.status_code, path)
+        return False
+
+    def remove_label(
+        self, owner: str, repo: str, pr_number: int, label: str
+    ) -> bool:
+        """Remove a label from a PR/issue. Returns True on success or if label was already absent."""
+        encoded_label = quote(label, safe="")
+        return self.delete(
+            f"/repos/{owner}/{repo}/issues/{pr_number}/labels/{encoded_label}"
+        )
+
+    def add_reaction(
+        self, owner: str, repo: str, comment_id: int, reaction: str
+    ) -> dict | None:
+        """Add a reaction to an issue comment."""
+        return self.post(
+            f"/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+            {"content": reaction},
+        )
+
+    def reopen_pr(self, owner: str, repo: str, pr_number: int) -> dict | None:
+        """Reopen a closed PR."""
+        return self.patch(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}",
+            {"state": "open"},
+        )
+
+    def get_collaborator_permission(
+        self, owner: str, repo: str, username: str
+    ) -> str | None:
+        """Get a user's permission level on a repo. Returns 'admin', 'write', 'read', or 'none'."""
+        data = self.get(f"/repos/{owner}/{repo}/collaborators/{username}/permission")
+        if data and isinstance(data, dict):
+            return data.get("permission")
+        return None
+
+    def get_contributors(self, owner: str, repo: str) -> list[str]:
+        """Get all contributors (people who have committed) to a repo."""
+        contributors: list[str] = []
+        page = 1
+        while True:
+            data = self.get(
+                f"/repos/{owner}/{repo}/contributors",
+                params={"per_page": "100", "page": str(page)},
+            )
+            if not data or not isinstance(data, list):
+                break
+            contributors.extend(c["login"].lower() for c in data if "login" in c)
+            if len(data) < 100:
+                break
+            page += 1
+        return contributors
