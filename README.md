@@ -147,6 +147,10 @@ fossier denounce spammer --reason "SEO link spam"
 # Reject a contributor (denounce locally + report to global registry)
 fossier reject spammer --reason "SEO link spam" --pr 42
 
+# Vouch for all existing repo contributors (bootstrap)
+fossier vouch-all --repo owner/repo
+fossier vouch-all --dry-run  # preview without writing
+
 # Initialize config files and workflows
 fossier init
 
@@ -252,6 +256,38 @@ If the [GitHub CLI](https://cli.github.com/) (`gh`) is installed and authenticat
 - **Collaborators fallback** — uses `gh api` when the REST API can't list collaborators
 
 This means running `fossier check` locally "just works" if you have `gh` set up, no token configuration needed.
+
+## PR Slash Commands
+
+When Fossier labels a PR `fossier:needs-review`, maintainers can interact with Fossier directly from PR comments using slash commands:
+
+| Command | What it does |
+|---------|-------------|
+| `/fossier approve` | Override the review decision — removes the `fossier:needs-review` label, updates the Fossier comment, and reopens the PR if it was auto-closed |
+| `/fossier vouch` | Vouch for the PR author (adds them to `VOUCHED.td`) and approve the PR. Future PRs from this contributor will be trusted automatically |
+| `/fossier reject <reason>` | Denounce the PR author, close the PR, and report to the global registry if configured. Reason is required |
+| `/fossier check` | Re-run the full evaluation pipeline on the PR |
+| `/fossier score` | Post a detailed score breakdown as a reply comment |
+| `/fossier vouch-all` | Vouch for all existing repo contributors at once (useful when first adopting Fossier) |
+
+Only repository collaborators with **write** or **admin** access can use these commands. Fossier reacts to the command comment with :eyes: on receipt and :+1: or :-1: on success/failure.
+
+To enable slash commands, add the `issue_comment` trigger to your workflow:
+
+```yaml
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write    # needed for VOUCHED.td commits
+  pull-requests: write
+  issues: write
+```
+
+When `/fossier vouch`, `/fossier reject`, or `/fossier vouch-all` modify `VOUCHED.td`, the change is automatically committed back to the repository with `[skip ci]`.
 
 ## VOUCHED.td
 
