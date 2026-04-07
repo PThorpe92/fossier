@@ -74,7 +74,9 @@ def collect_signals(
         ("bot_signals", _signal_bot),
         ("open_prs_elsewhere", _signal_open_prs),
         ("closed_prs_elsewhere", _signal_closed_prs),
+        ("merged_prs_elsewhere", _signal_merged_prs),
         ("prior_interaction", _signal_prior_interaction),
+        ("activity_velocity", _signal_activity_velocity),
         ("pr_content", _signal_pr_content),
         ("commit_email", _signal_commit_email),
         ("pr_description", _signal_pr_description),
@@ -118,8 +120,23 @@ def _signal_account_age(
 
     created = datetime.fromisoformat(user["created_at"].replace("Z", "+00:00"))
     days = (datetime.now(timezone.utc) - created).days
-    normalized = min(days / 365, 1.0)
-    return SignalResult("account_age", days, normalized, 0)
+    base = min(days / 365, 1.0)
+
+    # Old but empty accounts shouldn't get full credit
+    activity = (
+        user.get("public_repos", 0)
+        + user.get("followers", 0)
+        + user.get("public_gists", 0)
+    )
+    if activity == 0:
+        activity_factor = 0.3
+    elif activity < 5:
+        activity_factor = 0.6
+    else:
+        activity_factor = 1.0
+
+    normalized = base * activity_factor
+    return SignalResult("account_age", days, round(normalized, 3), 0)
 
 
 def _signal_public_repos(
@@ -180,7 +197,7 @@ def _signal_bot(
     if _BOT_USERNAME_PATTERNS.search(username):
         is_bot = True
 
-    normalized = 0.0 if is_bot else 1.0
+    normalized = 0.0 if is_bot else 0.5
     return SignalResult("bot_signals", is_bot, normalized, 0)
 
 
@@ -192,7 +209,7 @@ def _signal_open_prs(
     if count < 0:
         return SignalResult("open_prs_elsewhere", 0, 0.5, 0, success=False, error="Search failed")
 
-    normalized = max(1.0 - count / 15, 0.0)
+    normalized = max(1.0 - count / 8, 0.0)
     return SignalResult("open_prs_elsewhere", count, normalized, 0)
 
 
@@ -210,13 +227,44 @@ def _signal_closed_prs(
     return SignalResult("closed_prs_elsewhere", count, normalized, 0)
 
 
+def _signal_merged_prs(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
+) -> SignalResult:
+    """Merged PRs elsewhere are strong evidence of legitimate contribution."""
+    count = api.search_merged_prs(username)
+    if count < 0:
+        return SignalResult("merged_prs_elsewhere", 0, 0.5, 0, success=False, error="Search failed")
+    # 0 merged = 0.2 (slightly negative), 5+ merged = 1.0
+    normalized = min(0.2 + count * 0.16, 1.0)
+    return SignalResult("merged_prs_elsewhere", count, round(normalized, 3), 0)
+
+
 def _signal_prior_interaction(
     api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
     *, user_profile: dict | None = None,
 ) -> SignalResult:
-    has_interaction = api.search_prior_interaction(owner, repo, username)
-    normalized = 1.0 if has_interaction else 0.0
-    return SignalResult("prior_interaction", has_interaction, normalized, 0)
+    """Prior interaction with this repo, excluding items from the last 24h."""
+    count = api.search_prior_interaction(owner, repo, username)
+    # Graduated: 0 = 0.0, 1 = 0.33, 3+ = 1.0
+    normalized = min(count / 3, 1.0)
+    return SignalResult("prior_interaction", count, round(normalized, 3), 0)
+
+
+def _signal_activity_velocity(
+    api: GitHubAPI, username: str, owner: str, repo: str, pr: int | None,
+    *, user_profile: dict | None = None,
+) -> SignalResult:
+    """High activity velocity (many items in short time) is a spam signal."""
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    count = api.count_recent_items(owner, repo, username, since)
+    # 1 item = normal (1.0), 3 = moderate (0.5), 6+ = very suspicious (0.0)
+    if count <= 1:
+        normalized = 1.0
+    else:
+        normalized = max(1.0 - count / 6, 0.0)
+    return SignalResult("activity_velocity", count, round(normalized, 3), 0)
 
 
 def _signal_pr_content(

@@ -115,6 +115,34 @@ def search_closed_prs(username: str) -> int:
         return -1
 
 
+def search_merged_prs(username: str) -> int:
+    """Count merged PRs by user using `gh search prs`."""
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "search",
+                "prs",
+                "--author",
+                username,
+                "--merged",
+                "--json",
+                "number",
+                "--limit",
+                "100",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return -1
+        data = json.loads(result.stdout)
+        return len(data) if isinstance(data, list) else -1
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return -1
+
+
 def search_prior_interaction(owner: str, repo: str, username: str) -> bool:
     """Check if user has prior issues/PRs/comments on this repo using `gh`."""
     # Check for PRs by the user

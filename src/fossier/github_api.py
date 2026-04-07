@@ -279,21 +279,44 @@ class GitHubAPI:
             return gh_cli.search_closed_prs(username)
         return -1
 
-    def search_prior_interaction(self, owner: str, repo: str, username: str) -> bool:
-        """Check if user has any prior issues/comments on this repo."""
+    def search_merged_prs(self, username: str) -> int:
+        """Count of merged PRs by user across all repos."""
         data = self.get(
             "/search/issues",
-            params={"q": f"repo:{owner}/{repo} author:{username}", "per_page": "1"},
+            params={"q": f"author:{username} is:pr is:merged", "per_page": "1"},
             pool="search",
         )
         if data and isinstance(data, dict):
-            return data.get("total_count", 0) > 0
+            count = data.get("total_count", -1)
+            if count >= 0:
+                return count
+
+        # Fallback to gh CLI
+        if self._gh_available:
+            logger.debug("Falling back to `gh search prs` for merged PR count")
+            return gh_cli.search_merged_prs(username)
+        return -1
+
+    def search_prior_interaction(self, owner: str, repo: str, username: str) -> int:
+        """Count prior issues/PRs by user on this repo, excluding items from last 24h."""
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        query = f"repo:{owner}/{repo} author:{username} created:<{cutoff}"
+        data = self.get(
+            "/search/issues",
+            params={"q": query, "per_page": "1"},
+            pool="search",
+        )
+        if data and isinstance(data, dict):
+            return data.get("total_count", 0)
 
         # Fallback to gh CLI
         if self._gh_available:
             logger.debug("Falling back to `gh search` for prior interaction")
-            return gh_cli.search_prior_interaction(owner, repo, username)
-        return False
+            count = gh_cli.search_prior_interaction(owner, repo, username)
+            # Legacy fallback returns bool; convert to int
+            return 1 if count else 0
+        return 0
 
     def find_fossier_comment(
         self, owner: str, repo: str, pr_number: int

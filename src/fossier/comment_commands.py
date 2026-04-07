@@ -207,6 +207,11 @@ class CommentCommandHandler:
         add_denounce(self.config.repo_root, pr_author, reason)
         _set_trust_changed()
 
+        # Run scoring to get actual score and signal breakdown for registry
+        score_result = score_contributor(
+            self.api, self.config, pr_author, self.pr_number
+        )
+
         # Report to global registry if configured
         if self.config.registry_url and self.config.registry_api_key:
             from fossier.registry_client import RegistryClient
@@ -217,9 +222,10 @@ class CommentCommandHandler:
                     username=pr_author,
                     repo_owner=self.owner,
                     repo_name=self.repo,
-                    score=0.0,
+                    score=score_result.total_score,
                     reason=f"Manual rejection by @{self.commenter}: {reason}",
                     pr_number=self.pr_number,
+                    signals=score_result.signal_breakdown,
                 )
             except Exception:
                 logger.warning("Failed to report to registry", exc_info=True)

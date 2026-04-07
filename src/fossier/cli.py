@@ -357,7 +357,17 @@ def _cmd_reject(args: argparse.Namespace) -> int:
     path = add_denounce(config.repo_root, username, args.reason)
     print(f"Denounced {username} in {path}")
 
-    # 2. Report to global registry if configured
+    # 2. Run scoring to get actual score and signal breakdown
+    pr_number = getattr(args, "pr", None)
+    db = Database(config.db_path)
+    db.connect()
+    api = GitHubAPI(config, db)
+    try:
+        score_result = score_contributor(api, config, username, pr_number)
+    finally:
+        db.close()
+
+    # 3. Report to global registry if configured
     if config.registry_url and config.registry_api_key:
         from fossier.registry_client import RegistryClient
 
@@ -367,9 +377,10 @@ def _cmd_reject(args: argparse.Namespace) -> int:
                 username=username,
                 repo_owner=config.repo_owner,
                 repo_name=config.repo_name,
-                score=0.0,
+                score=score_result.total_score,
                 reason=f"Manual rejection: {args.reason}",
-                pr_number=getattr(args, "pr", None),
+                pr_number=pr_number,
+                signals=score_result.signal_breakdown,
             )
             if success:
                 print(f"Reported {username} to the global registry")

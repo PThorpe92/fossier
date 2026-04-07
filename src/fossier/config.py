@@ -17,23 +17,25 @@ _CONFIG_PATHS = [
     ".github/fossier.toml",
 ]
 
-# Default signal weights (must sum to ~1.0)
+# Default signal weights (auto-normalized to sum to 1.0)
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "account_age": 0.10,
-    "public_repos": 0.06,
-    "contribution_history": 0.06,
-    "open_prs_elsewhere": 0.10,
-    "closed_prs_elsewhere": 0.12,
-    "prior_interaction": 0.10,
-    "pr_content": 0.10,
-    "follower_ratio": 0.06,
-    "bot_signals": 0.06,
-    "commit_email": 0.05,
+    "account_age": 0.09,
+    "public_repos": 0.05,
+    "contribution_history": 0.05,
+    "open_prs_elsewhere": 0.09,
+    "closed_prs_elsewhere": 0.10,
+    "merged_prs_elsewhere": 0.08,
+    "prior_interaction": 0.08,
+    "activity_velocity": 0.08,
+    "pr_content": 0.08,
+    "follower_ratio": 0.05,
+    "bot_signals": 0.04,
+    "commit_email": 0.04,
     "pr_description": 0.05,
-    "repo_stars": 0.05,
-    "org_membership": 0.04,
-    "commit_verification": 0.05,
-    "contributor_stars": 0.05,
+    "repo_stars": 0.04,
+    "org_membership": 0.03,
+    "commit_verification": 0.04,
+    "contributor_stars": 0.04,
 }
 
 
