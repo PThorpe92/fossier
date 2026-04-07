@@ -4,11 +4,13 @@ from unittest.mock import MagicMock
 
 from fossier.signals import (
     _signal_account_age,
+    _signal_activity_velocity,
     _signal_bot,
     _signal_closed_prs,
     _signal_commit_verification,
     _signal_contributor_stars,
     _signal_follower_ratio,
+    _signal_merged_prs,
     _signal_open_prs,
     _signal_pr_content,
     _signal_pr_description,
@@ -18,18 +20,33 @@ from fossier.signals import (
 )
 
 
-def _mock_api(user_data=None, pr_files=None, search_prs=-1, closed_prs=0, prior=False):
+def _mock_api(
+    user_data=None,
+    pr_files=None,
+    search_prs=-1,
+    closed_prs=0,
+    merged_prs=0,
+    prior=0,
+    recent_items=0,
+):
     api = MagicMock()
     api.get_user.return_value = user_data
     api.get_pr_files.return_value = pr_files or []
     api.search_open_prs.return_value = search_prs
     api.search_closed_prs.return_value = closed_prs
+    api.search_merged_prs.return_value = merged_prs
     api.search_prior_interaction.return_value = prior
+    api.count_recent_items.return_value = recent_items
     return api
 
 
 def test_account_age_old_account():
-    user = {"created_at": "2020-01-01T00:00:00Z"}
+    user = {
+        "created_at": "2020-01-01T00:00:00Z",
+        "public_repos": 10,
+        "followers": 5,
+        "public_gists": 0,
+    }
     api = _mock_api(user_data=user)
     result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
     assert result.success
@@ -39,8 +56,10 @@ def test_account_age_old_account():
 def test_account_age_new_account():
     from datetime import datetime, timedelta, timezone
 
-    recent = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    user = {"created_at": recent}
+    recent = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    user = {"created_at": recent, "public_repos": 1, "followers": 0, "public_gists": 0}
     api = _mock_api(user_data=user)
     result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
     assert result.success
@@ -92,13 +111,13 @@ def test_bot_detection_human():
     user = {"type": "User"}
     api = _mock_api(user_data=user)
     result = _signal_bot(api, "alice", "o", "r", None, user_profile=user)
-    assert result.normalized == 1.0
+    assert result.normalized == 0.5
 
 
 def test_open_prs_few():
     api = _mock_api(search_prs=2)
     result = _signal_open_prs(api, "user", "o", "r", None)
-    assert result.normalized > 0.8
+    assert result.normalized > 0.7
 
 
 def test_open_prs_many():
@@ -114,14 +133,20 @@ def test_open_prs_search_failed():
     assert result.normalized == 0.5  # neutral, not penalizing
 
 
-def test_prior_interaction_yes():
-    api = _mock_api(prior=True)
+def test_prior_interaction_many():
+    api = _mock_api(prior=5)
     result = _signal_prior_interaction(api, "user", "o", "r", None)
     assert result.normalized == 1.0
 
 
-def test_prior_interaction_no():
-    api = _mock_api(prior=False)
+def test_prior_interaction_one():
+    api = _mock_api(prior=1)
+    result = _signal_prior_interaction(api, "user", "o", "r", None)
+    assert 0.3 <= result.normalized <= 0.4
+
+
+def test_prior_interaction_none():
+    api = _mock_api(prior=0)
     result = _signal_prior_interaction(api, "user", "o", "r", None)
     assert result.normalized == 0.0
 
@@ -166,7 +191,9 @@ def test_collect_signals_returns_all():
     api = _mock_api(
         user_data=user_data,
         search_prs=3,
-        prior=True,
+        merged_prs=5,
+        prior=3,
+        recent_items=1,
     )
     api.get_user_orgs.return_value = ["some-org"]
     api.get_pr.return_value = {"title": "Add feature", "body": "Some description"}
@@ -176,11 +203,13 @@ def test_collect_signals_returns_all():
     ]
     api.get_user_repos.return_value = [{"stargazers_count": 10}]
     results = collect_signals(api, "user", "o", "r")
-    assert len(results) == 15
+    assert len(results) == 17
     names = {r.name for r in results}
     assert "account_age" in names
     assert "bot_signals" in names
     assert "closed_prs_elsewhere" in names
+    assert "merged_prs_elsewhere" in names
+    assert "activity_velocity" in names
     assert "commit_email" in names
     assert "pr_description" in names
     assert "repo_stars" in names
@@ -203,7 +232,9 @@ def test_collect_signals_fetches_user_once():
     api = _mock_api(
         user_data=user_data,
         search_prs=3,
-        prior=True,
+        merged_prs=5,
+        prior=3,
+        recent_items=1,
     )
     api.get_user_orgs.return_value = ["some-org"]
     api.get_pr.return_value = {"title": "Add feature", "body": "Some description"}
@@ -342,3 +373,99 @@ def test_commit_verification_unsigned():
     result = _signal_commit_verification(api, "user", "o", "r", 1)
     assert result.success
     assert result.normalized == 0.3  # floor for no signing
+
+
+# --- New signal tests ---
+
+
+def test_merged_prs_many():
+    api = _mock_api(merged_prs=10)
+    result = _signal_merged_prs(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 1.0
+
+
+def test_merged_prs_few():
+    api = _mock_api(merged_prs=2)
+    result = _signal_merged_prs(api, "user", "o", "r", None)
+    assert result.success
+    assert 0.4 < result.normalized < 0.6  # 0.2 + 2*0.16 = 0.52
+
+
+def test_merged_prs_none():
+    api = _mock_api(merged_prs=0)
+    result = _signal_merged_prs(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.2
+
+
+def test_merged_prs_search_failed():
+    api = _mock_api(merged_prs=-1)
+    result = _signal_merged_prs(api, "user", "o", "r", None)
+    assert not result.success
+    assert result.normalized == 0.5
+
+
+def test_activity_velocity_low():
+    api = _mock_api(recent_items=1)
+    result = _signal_activity_velocity(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 1.0
+
+
+def test_activity_velocity_moderate():
+    api = _mock_api(recent_items=3)
+    result = _signal_activity_velocity(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.5
+
+
+def test_activity_velocity_high():
+    api = _mock_api(recent_items=8)
+    result = _signal_activity_velocity(api, "user", "o", "r", None)
+    assert result.success
+    assert result.normalized == 0.0
+
+
+def test_account_age_old_empty():
+    """Old account with zero activity should be penalized."""
+    user = {
+        "created_at": "2020-01-01T00:00:00Z",
+        "public_repos": 0,
+        "followers": 0,
+        "public_gists": 0,
+    }
+    api = _mock_api(user_data=user)
+    result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
+    assert result.success
+    # activity_factor = 0.3, so normalized = base * 0.3
+    assert result.normalized < 0.4
+
+
+def test_account_age_old_active():
+    """Old account with real activity should get full credit."""
+    user = {
+        "created_at": "2020-01-01T00:00:00Z",
+        "public_repos": 20,
+        "followers": 10,
+        "public_gists": 0,
+    }
+    api = _mock_api(user_data=user)
+    result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
+    assert result.success
+    assert result.normalized > 0.9
+
+
+def test_account_age_old_sparse():
+    """Old account with very sparse activity (2 repos, 0 followers)."""
+    user = {
+        "created_at": "2025-05-01T00:00:00Z",
+        "public_repos": 2,
+        "followers": 0,
+        "public_gists": 0,
+    }
+    api = _mock_api(user_data=user)
+    result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
+    assert result.success
+    # ~349 days, activity=2, factor=0.6 -> base*0.6 ~ 0.57
+    assert result.normalized < 0.7

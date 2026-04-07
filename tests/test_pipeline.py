@@ -48,12 +48,15 @@ def api():
     }
     api.search_open_prs.return_value = 2
     api.search_closed_prs.return_value = 0
-    api.search_prior_interaction.return_value = False
+    api.search_merged_prs.return_value = 5
+    api.search_prior_interaction.return_value = 3
+    api.count_recent_items.return_value = 1
     api.get_pr_files.return_value = []
     api.get_user_orgs.return_value = []
     api.get_pr.return_value = None
     api.get_repo.return_value = {"stargazers_count": 50}
     api.get_pr_commits.return_value = []
+    api.get_user_repos.return_value = []
     return api
 
 

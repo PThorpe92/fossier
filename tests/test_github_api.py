@@ -175,13 +175,13 @@ class TestHelperMethods:
         api._client.get.return_value = _mock_response(
             json_data={"total_count": 3}
         )
-        assert api.search_prior_interaction("o", "r", "alice") is True
+        assert api.search_prior_interaction("o", "r", "alice") == 3
 
     def test_search_prior_interaction_none(self, api):
         api._client.get.return_value = _mock_response(
             json_data={"total_count": 0}
         )
-        assert api.search_prior_interaction("o", "r", "alice") is False
+        assert api.search_prior_interaction("o", "r", "alice") == 0
 
     def test_post_comment(self, api):
         api._client.post.return_value = _mock_response(
