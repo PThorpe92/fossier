@@ -37,7 +37,10 @@ def test_account_age_old_account():
 
 
 def test_account_age_new_account():
-    user = {"created_at": "2026-03-01T00:00:00Z"}
+    from datetime import datetime, timedelta, timezone
+
+    recent = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    user = {"created_at": recent}
     api = _mock_api(user_data=user)
     result = _signal_account_age(api, "user", "o", "r", None, user_profile=user)
     assert result.success
