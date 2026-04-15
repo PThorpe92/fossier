@@ -107,6 +107,10 @@ class Config:
     registry_report_denials: bool = False
     registry_check_before_scoring: bool = False
     registry_block_threshold: int = 3  # reports needed to auto-block via registry
+    # When False, a low score alone won't push a report to the registry — only
+    # explicit /fossier reject will. Keeps the registry curated rather than
+    # noisy. Default True preserves the pre-existing behavior.
+    registry_report_score_denials: bool = True
 
     flood_threshold: int = (
         3  # PRs/issues from same unknown user within window = spam flood
@@ -255,6 +259,8 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.registry_check_before_scoring = bool(reg["check_before_scoring"])
         if "block_threshold" in reg:
             config.registry_block_threshold = int(reg["block_threshold"])
+        if "report_score_denials" in reg:
+            config.registry_report_score_denials = bool(reg["report_score_denials"])
 
 
 def _apply_env(config: Config) -> None:

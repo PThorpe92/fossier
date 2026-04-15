@@ -69,3 +69,6 @@ collaborators_hours = 6
 # report_denials = false          # Report score-based denials to the registry
 # check_before_scoring = false    # Block users with 3+ registry reports before scoring
 # block_threshold = 3             # Number of registry reports needed to auto-block
+# report_score_denials = true     # Send reports for score-only denials. Set to false to
+#                                 # only report when a maintainer runs /fossier reject
+#                                 # (keeps the registry curated rather than noisy).

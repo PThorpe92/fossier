@@ -60,6 +60,30 @@ def _set_trust_changed() -> None:
             f.write("FOSSIER_TRUST_CHANGED=true\n")
 
 
+def _delete_registry_report(
+    config: Config, owner: str, repo: str, username: str
+) -> None:
+    """Best-effort removal of this repo's registry report for a user.
+
+    Called when a maintainer overrides an auto-deny via /fossier approve or
+    /fossier vouch so the shared registry reflects the corrected decision.
+    Silently no-ops if the registry isn't configured. Failures are logged
+    but not propagated — registry cleanup must never block a maintainer
+    override.
+    """
+    if not (config.registry_url and config.registry_api_key):
+        return
+    from fossier.registry_client import RegistryClient
+
+    client = RegistryClient(config.registry_url, config.registry_api_key)
+    try:
+        client.delete_report(username, owner, repo)
+    except Exception:
+        logger.warning("Failed to delete registry report", exc_info=True)
+    finally:
+        client.close()
+
+
 class CommentCommandHandler:
     """Dispatch and execute /fossier commands from PR comments."""
 
@@ -171,6 +195,10 @@ class CommentCommandHandler:
                 [self.config.manual_approval_label],
             )
 
+        # Retract any spam report this repo filed for the user — the
+        # maintainer is overruling the auto-deny.
+        _delete_registry_report(self.config, self.owner, self.repo, pr_author)
+
         # Update the fossier status comment
         body = format_approved_comment(self.commenter)
         self.api.post_or_update_comment(self.owner, self.repo, self.pr_number, body)
@@ -204,6 +232,10 @@ class CommentCommandHandler:
                 self.pr_number,
                 [self.config.manual_approval_label],
             )
+
+        # Retract any spam report this repo filed for the user — a vouch is
+        # a stronger override than approve, so the registry should forget.
+        _delete_registry_report(self.config, self.owner, self.repo, pr_author)
 
         # Update the fossier status comment
         body = format_vouched_comment(self.commenter, pr_author)

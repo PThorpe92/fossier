@@ -141,5 +141,41 @@ class RegistryClient:
             logger.warning("Registry report failed: %s", e)
         return False
 
+    def delete_report(
+        self,
+        username: str,
+        repo_owner: str,
+        repo_name: str,
+    ) -> bool:
+        """Remove this repo's spam report for a user.
+
+        The registry authorizes the call with the API key, so only reports
+        filed by the authenticated repo are deleted — reports from other
+        repos are untouched. Intended for use when a maintainer overrides
+        an auto-deny via /fossier approve or /fossier vouch.
+
+        Returns True if a report was removed, False if there was nothing to
+        delete or the call failed. Failures are logged and swallowed —
+        callers should treat this as best-effort.
+        """
+        path = f"/api/report/{username}/{repo_owner}/{repo_name}"
+        try:
+            response = self._request_with_retry("DELETE", path)
+            if response and response.status_code == 200:
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = {}
+                return bool(data.get("deleted", False))
+            if response:
+                logger.warning(
+                    "Registry delete returned %d for %s",
+                    response.status_code,
+                    username,
+                )
+        except httpx.HTTPError as e:
+            logger.warning("Registry delete failed for %s: %s", username, e)
+        return False
+
     def close(self) -> None:
         self._client.close()

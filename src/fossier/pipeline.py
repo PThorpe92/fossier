@@ -246,10 +246,13 @@ def _run_pipeline(
         score_history_id = db.record_score(contributor_id, score_result, pr_number)
     db.record_decision(contributor_id, decision, score_history_id)
 
-    # Report denial to global registry
+    # Report denial to global registry. Score-based denials are gated behind
+    # a separate flag so operators can keep the registry curated (populated
+    # only by explicit /fossier reject) while still running auto-close locally.
     if (
         registry
         and config.registry_report_denials
+        and config.registry_report_score_denials
         and decision.outcome == Outcome.DENY
         and score_result  # only report score-based denials, not tier-based
     ):
