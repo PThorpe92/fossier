@@ -57,6 +57,10 @@ collaborators_hours = 6
 # reject_ai_authored = false  # auto-deny PRs with AI co-authored commits (Claude, Copilot, etc.)
 # flood_threshold = 3         # PRs/issues from same unknown user in window = spam flood
 # flood_window_hours = 1      # time window for flood detection (default: 1 hour)
+# manual_approval_label = "fossier:approved"  # Label applied by /fossier approve and
+#                                             # /fossier vouch that acts as a persistent
+#                                             # override — prevents auto-close when new
+#                                             # commits are pushed. Set to "" to disable.
 
 [registry]
 # Global fossier spam registry: share spam intelligence across repositories
