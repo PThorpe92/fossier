@@ -283,6 +283,43 @@ class TestHandleApprove:
         handler.run()
         api.add_labels.assert_not_called()
 
+    def test_deletes_registry_report_when_configured(self, handler_setup):
+        handler, config, api, _ = handler_setup("/fossier approve")
+        config.registry_url = "https://registry.example.com"
+        config.registry_api_key = "test-key"
+
+        mock_reg = MagicMock()
+        with patch(
+            "fossier.registry_client.RegistryClient", return_value=mock_reg
+        ) as reg_cls:
+            handler.run()
+
+        reg_cls.assert_called_once_with("https://registry.example.com", "test-key")
+        mock_reg.delete_report.assert_called_once_with("prauthor", "owner", "repo")
+        mock_reg.close.assert_called_once()
+
+    def test_skips_registry_when_not_configured(self, handler_setup):
+        handler, config, api, _ = handler_setup("/fossier approve")
+        # No registry_url/api_key
+        with patch("fossier.registry_client.RegistryClient") as reg_cls:
+            handler.run()
+        reg_cls.assert_not_called()
+
+    def test_registry_delete_failure_does_not_abort_approval(self, handler_setup):
+        handler, config, api, _ = handler_setup("/fossier approve")
+        config.registry_url = "https://registry.example.com"
+        config.registry_api_key = "test-key"
+
+        mock_reg = MagicMock()
+        mock_reg.delete_report.side_effect = RuntimeError("network down")
+        with patch("fossier.registry_client.RegistryClient", return_value=mock_reg):
+            result = handler.run()
+
+        # Approval still succeeds even if registry cleanup errors out.
+        assert result == 0
+        api.post_or_update_comment.assert_called_once()
+        mock_reg.close.assert_called_once()
+
 
 class TestHandleVouch:
     def test_vouches_and_approves(self, handler_setup, tmp_path):
@@ -324,6 +361,30 @@ class TestHandleVouch:
         api.add_labels.assert_called_once_with(
             "owner", "repo", 42, [config.manual_approval_label]
         )
+
+    def test_deletes_registry_report_when_configured(
+        self, handler_setup, tmp_path
+    ):
+        handler, config, api, _ = handler_setup("/fossier vouch")
+        config.registry_url = "https://registry.example.com"
+        config.registry_api_key = "test-key"
+
+        (tmp_path / "VOUCHED.td").write_text("# vouches\n")
+        env_file = str(tmp_path / "github_env")
+        with open(env_file, "w"):
+            pass
+
+        mock_reg = MagicMock()
+        with (
+            patch.dict(os.environ, {"GITHUB_ENV": env_file}),
+            patch(
+                "fossier.registry_client.RegistryClient", return_value=mock_reg
+            ) as reg_cls,
+        ):
+            handler.run()
+
+        reg_cls.assert_called_once_with("https://registry.example.com", "test-key")
+        mock_reg.delete_report.assert_called_once_with("prauthor", "owner", "repo")
 
 
 class TestHandleReject:

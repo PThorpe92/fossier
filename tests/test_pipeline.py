@@ -300,3 +300,39 @@ def test_registry_reports_denial(config, db, api):
         call_kwargs = mock_client.report_spam.call_args
         assert call_kwargs.kwargs["username"] == "spambot" or call_kwargs[1]["username"] == "spambot"
         mock_client.close.assert_called_once()
+
+
+def test_score_denials_skipped_when_flag_disabled(config, db, api):
+    """With registry_report_score_denials=False, score-based DENY must not
+    push a report. This lets operators keep the registry curated while still
+    running auto-close locally."""
+    config.registry_url = "https://registry.example.com"
+    config.registry_report_denials = True
+    config.registry_report_score_denials = False
+    config.registry_api_key = "test-key"
+
+    api.get_user.return_value = {
+        "created_at": "2026-03-15T00:00:00Z",
+        "public_repos": 0,
+        "public_gists": 0,
+        "followers": 0,
+        "following": 0,
+        "type": "User",
+        "email": None,
+    }
+    api.search_open_prs.return_value = 20
+    api.get_repo.return_value = {"stargazers_count": 5000}
+
+    from unittest.mock import patch
+
+    mock_client = MagicMock()
+    mock_client.report_spam.return_value = True
+
+    with patch("fossier.pipeline._get_registry_client", return_value=mock_client):
+        resolver = TrustResolver(config, db, api)
+        decision = evaluate_contributor("spambot", resolver, pr_number=99)
+
+    # Regardless of the score outcome, no report should have been pushed.
+    mock_client.report_spam.assert_not_called()
+    # Decision still flows through normally.
+    assert decision.outcome in (Outcome.ALLOW, Outcome.REVIEW, Outcome.DENY)

@@ -108,6 +108,36 @@ class TestReportSpam:
         assert result is False
 
 
+class TestDeleteReport:
+    def test_successful_delete(self, client):
+        client._client.request.return_value = _mock_response(
+            status=200, json_data={"deleted": True, "username": "spammer"}
+        )
+        result = client.delete_report("spammer", "owner", "repo")
+        assert result is True
+        call_args = client._client.request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert call_args[0][1] == "/api/report/spammer/owner/repo"
+
+    def test_nothing_to_delete(self, client):
+        # Server responds 200 but reports no row matched.
+        client._client.request.return_value = _mock_response(
+            status=200, json_data={"deleted": False, "username": "gooduser"}
+        )
+        result = client.delete_report("gooduser", "owner", "repo")
+        assert result is False
+
+    def test_unauthorized(self, client):
+        client._client.request.return_value = _mock_response(status=401)
+        result = client.delete_report("user", "o", "r")
+        assert result is False
+
+    def test_network_error(self, client):
+        client._client.request.side_effect = httpx.ConnectError("Connection refused")
+        result = client.delete_report("user", "o", "r")
+        assert result is False
+
+
 class TestClientHeaders:
     def test_auth_header_set(self):
         client = RegistryClient("https://example.com", api_key="my-key")

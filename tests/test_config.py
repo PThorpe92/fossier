@@ -29,6 +29,10 @@ def test_default_config():
     assert config.registry_api_key == ""
     assert config.registry_report_denials is False
     assert config.registry_check_before_scoring is False
+    # Default to true: preserve prior behavior unless operator opts out.
+    assert config.registry_report_score_denials is True
+    # Default manual approval label for /fossier approve overrides.
+    assert config.manual_approval_label == "fossier:approved"
 
 
 def test_load_config_from_toml(tmp_path):
@@ -228,6 +232,7 @@ url = "https://registry.fossier.io"
 api_key = "test-key-123"
 report_denials = true
 check_before_scoring = true
+report_score_denials = false
 """
     (tmp_path / "fossier.toml").write_text(toml_content)
     with patch("fossier.config._detect_git_root", return_value=tmp_path):
@@ -236,6 +241,7 @@ check_before_scoring = true
     assert config.registry_api_key == "test-key-123"
     assert config.registry_report_denials is True
     assert config.registry_check_before_scoring is True
+    assert config.registry_report_score_denials is False
 
 
 def test_registry_env_overrides(tmp_path):
