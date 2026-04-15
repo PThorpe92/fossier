@@ -270,6 +270,19 @@ class TestHandleApprove:
         handler.run()
         api.reopen_pr.assert_not_called()
 
+    def test_adds_manual_approval_label(self, handler_setup):
+        handler, config, api, _ = handler_setup("/fossier approve")
+        handler.run()
+        api.add_labels.assert_called_once_with(
+            "owner", "repo", 42, [config.manual_approval_label]
+        )
+
+    def test_skips_label_when_disabled(self, handler_setup):
+        handler, config, api, _ = handler_setup("/fossier approve")
+        config.manual_approval_label = ""
+        handler.run()
+        api.add_labels.assert_not_called()
+
 
 class TestHandleVouch:
     def test_vouches_and_approves(self, handler_setup, tmp_path):
@@ -299,6 +312,18 @@ class TestHandleVouch:
         api.post_or_update_comment.assert_called_once()
         body = api.post_or_update_comment.call_args[0][3]
         assert "Vouched and Approved" in body
+
+    def test_adds_manual_approval_label(self, handler_setup, tmp_path):
+        handler, config, api, _ = handler_setup("/fossier vouch")
+        (tmp_path / "VOUCHED.td").write_text("# vouches\n")
+        env_file = str(tmp_path / "github_env")
+        with open(env_file, "w"):
+            pass
+        with patch.dict(os.environ, {"GITHUB_ENV": env_file}):
+            handler.run()
+        api.add_labels.assert_called_once_with(
+            "owner", "repo", 42, [config.manual_approval_label]
+        )
 
 
 class TestHandleReject:

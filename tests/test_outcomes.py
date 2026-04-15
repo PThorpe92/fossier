@@ -71,11 +71,42 @@ class TestExecuteOutcome:
     def test_deny_posts_comment_and_closes(self):
         config = Config(repo_owner="o", repo_name="r")
         api = MagicMock()
+        api.get_pr_labels_fresh.return_value = []
         decision = _make_decision(Outcome.DENY, score=30.0)
         execute_outcome(decision, config, api)
         api.post_or_update_comment.assert_called_once()
         api.add_labels.assert_called_once()
         api.close_pr.assert_called_once_with("o", "r", 42)
+
+    def test_deny_skipped_when_manual_approval_label_present(self):
+        config = Config(repo_owner="o", repo_name="r")
+        api = MagicMock()
+        api.get_pr_labels_fresh.return_value = [config.manual_approval_label]
+        decision = _make_decision(Outcome.DENY, score=30.0)
+        execute_outcome(decision, config, api)
+        api.get_pr_labels_fresh.assert_called_once_with("o", "r", 42)
+        api.post_or_update_comment.assert_not_called()
+        api.add_labels.assert_not_called()
+        api.close_pr.assert_not_called()
+
+    def test_review_skipped_when_manual_approval_label_present(self):
+        config = Config(repo_owner="o", repo_name="r")
+        api = MagicMock()
+        api.get_pr_labels_fresh.return_value = [config.manual_approval_label]
+        decision = _make_decision(Outcome.REVIEW, score=55.0)
+        execute_outcome(decision, config, api)
+        api.post_or_update_comment.assert_not_called()
+        api.add_labels.assert_not_called()
+
+    def test_manual_approval_check_skipped_when_disabled(self):
+        config = Config(repo_owner="o", repo_name="r")
+        config.manual_approval_label = ""
+        api = MagicMock()
+        decision = _make_decision(Outcome.DENY, score=30.0)
+        execute_outcome(decision, config, api)
+        # Label lookup is skipped entirely when disabled
+        api.get_pr_labels_fresh.assert_not_called()
+        api.close_pr.assert_called_once()
 
     def test_deny_no_close_if_config_off(self):
         config = Config(repo_owner="o", repo_name="r")

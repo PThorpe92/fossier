@@ -158,3 +158,41 @@ def test_pr_event_blocked_user(pr_event, _patch_for_action, tmp_path):
         result = action_main()
 
     assert result == 1
+
+
+def test_pr_event_manual_approval_label_skips_pipeline(
+    event_file, _patch_for_action, tmp_path
+):
+    """PR carrying the manual approval label should short-circuit to ALLOW."""
+    config, api = _patch_for_action
+    # Force a result that would otherwise DENY, to prove the label wins.
+    config.blocked_users = {"testuser"}
+
+    event_path = event_file(
+        {
+            "pull_request": {
+                "number": 42,
+                "user": {"login": "testuser"},
+                "labels": [{"name": config.manual_approval_label}],
+            }
+        }
+    )
+    output_file = str(tmp_path / "github_output")
+    with open(output_file, "w"):
+        pass
+
+    env = {
+        "GITHUB_EVENT_PATH": event_path,
+        "GITHUB_OUTPUT": output_file,
+    }
+    with patch.dict(os.environ, env):
+        result = action_main()
+
+    # Should return 0 (ALLOW) regardless of blocklist, and never hit the API.
+    assert result == 0
+    api.get_user.assert_not_called()
+
+    with open(output_file) as f:
+        output_content = f.read()
+    assert "outcome=allow" in output_content
+    assert "tier=trusted" in output_content
