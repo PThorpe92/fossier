@@ -432,6 +432,30 @@ class GitHubAPI:
         """Get PR details including title and body."""
         return self.get(f"/repos/{owner}/{repo}/pulls/{pr_number}")
 
+    def get_pr_labels_fresh(
+        self, owner: str, repo: str, pr_number: int
+    ) -> list[str]:
+        """Fetch the current label names on a PR, bypassing the local cache.
+
+        Use this when you need an authoritative read of label state (e.g. to
+        detect a manual approval override) and can't rely on the cached PR
+        payload. Returns an empty list on error or if the PR doesn't exist.
+        """
+        path = f"/repos/{owner}/{repo}/issues/{pr_number}/labels"
+        self._check_rate_limit("core")
+        try:
+            response = self._client.get(path)
+        except httpx.HTTPError as e:
+            logger.warning("HTTP error fetching fresh labels for #%d: %s", pr_number, e)
+            return []
+        self._update_rate_limits(response, "core")
+        if response.status_code >= 400:
+            return []
+        data = response.json()
+        if not isinstance(data, list):
+            return []
+        return [label.get("name", "") for label in data if "name" in label]
+
     def get_repo(self, owner: str, repo: str) -> dict | None:
         """Get repository details."""
         return self.get(f"/repos/{owner}/{repo}")

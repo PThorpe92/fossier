@@ -161,6 +161,16 @@ class CommentCommandHandler:
                 self.owner, self.repo, self.pr_number, self.config.deny_action.label
             )
 
+        # Apply the manual approval label as a persistent override marker
+        # so subsequent runs (new commits, /fossier check) don't auto-close.
+        if self.config.manual_approval_label:
+            self.api.add_labels(
+                self.owner,
+                self.repo,
+                self.pr_number,
+                [self.config.manual_approval_label],
+            )
+
         # Update the fossier status comment
         body = format_approved_comment(self.commenter)
         self.api.post_or_update_comment(self.owner, self.repo, self.pr_number, body)
@@ -183,6 +193,16 @@ class CommentCommandHandler:
         if self.config.deny_action.label:
             self.api.remove_label(
                 self.owner, self.repo, self.pr_number, self.config.deny_action.label
+            )
+
+        # Apply the manual approval label so future runs on this PR respect
+        # the override even before VOUCHED.td lands.
+        if self.config.manual_approval_label:
+            self.api.add_labels(
+                self.owner,
+                self.repo,
+                self.pr_number,
+                [self.config.manual_approval_label],
             )
 
         # Update the fossier status comment

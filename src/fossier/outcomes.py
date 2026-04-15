@@ -31,6 +31,24 @@ def execute_outcome(
     repo = config.repo_name
     pr = decision.pr_number
 
+    # If a maintainer has already approved this PR (via /fossier approve or
+    # /fossier vouch), respect that override — don't re-close, re-label, or
+    # overwrite the approval comment. We fetch labels directly (bypassing the
+    # cache) so the check sees state added by a prior run in the same repo.
+    if (
+        config.manual_approval_label
+        and decision.outcome in (Outcome.DENY, Outcome.REVIEW)
+    ):
+        labels = api.get_pr_labels_fresh(owner, repo, pr)
+        if config.manual_approval_label in labels:
+            logger.info(
+                "PR #%d has manual approval label %r — skipping %s actions",
+                pr,
+                config.manual_approval_label,
+                decision.outcome.value,
+            )
+            return
+
     if decision.outcome == Outcome.DENY:
         _execute_deny(owner, repo, pr, decision, config, api)
     elif decision.outcome == Outcome.REVIEW:

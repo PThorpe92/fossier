@@ -68,6 +68,11 @@ class GithubAction:
         if isinstance(pr, dict):
             pr_number = pr["number"]
             username = pr["user"]["login"].lower()
+            event_labels = [
+                label.get("name", "")
+                for label in pr.get("labels", [])
+                if isinstance(label, dict)
+            ]
         else:
             logger.error("Could not extract PR info from event payload")
             return 3
@@ -75,6 +80,35 @@ class GithubAction:
         logger.info("Evaluating PR #%d by @%s", pr_number, username)
 
         config = load_config()
+
+        # Short-circuit if a maintainer has manually approved this PR.
+        # The label is persistent state that survives across workflow runs,
+        # so subsequent synchronize events (new commits) won't re-close it.
+        if (
+            config.manual_approval_label
+            and config.manual_approval_label in event_labels
+        ):
+            logger.info(
+                "PR #%d carries manual approval label %r — skipping evaluation",
+                pr_number,
+                config.manual_approval_label,
+            )
+            self._set_output("outcome", "allow")
+            self._set_output("tier", "trusted")
+            self._set_output("score", "")
+            self._set_output(
+                "details",
+                json.dumps(
+                    {
+                        "username": username,
+                        "outcome": "allow",
+                        "reason": "manually approved by maintainer",
+                        "pr_number": pr_number,
+                    }
+                ),
+            )
+            return 0
+
         db = Database(config.db_path)
         db.connect()
         api = GitHubAPI(config, db)

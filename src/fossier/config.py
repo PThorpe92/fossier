@@ -96,6 +96,12 @@ class Config:
     bot_policy: str = "score"  # "score" (default), "allow", or "block"
     reject_ai_authored: bool = False  # auto-deny PRs with AI co-authored commits
 
+    # Label applied by /fossier approve and /fossier vouch. When present on a PR,
+    # the pipeline treats it as a hard override and skips auto-close/review
+    # actions on subsequent runs (e.g. when new commits are pushed).
+    # Set to "" to disable.
+    manual_approval_label: str = "fossier:approved"
+
     registry_url: str = ""
     registry_api_key: str = ""
     registry_report_denials: bool = False
@@ -231,6 +237,8 @@ def _apply_toml(config: Config, path: Path) -> None:
             config.flood_threshold = int(trust["flood_threshold"])
         if "flood_window_hours" in trust:
             config.flood_window_hours = int(trust["flood_window_hours"])
+        if "manual_approval_label" in trust:
+            config.manual_approval_label = str(trust["manual_approval_label"])
 
     if "registry" in data:
         reg = data["registry"]
