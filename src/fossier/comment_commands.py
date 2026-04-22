@@ -52,12 +52,24 @@ def is_authorized(api: GitHubAPI, owner: str, repo: str, username: str) -> bool:
     return username.lower() in collaborators
 
 
-def _set_trust_changed() -> None:
-    """Signal the workflow to commit VOUCHED.td changes."""
+def _signal_trust_change(
+    branch: str, commit_msg: str, pr_title: str, pr_body: str
+) -> None:
+    """Signal the workflow to open a PR with VOUCHED.td changes.
+
+    Writes FOSSIER_TRUST_* variables to $GITHUB_ENV; the action.yml "Open
+    trust update PR" step reads them to create a branch, commit, push, and
+    open a PR against the default branch.
+    """
     env_file = os.environ.get("GITHUB_ENV")
-    if env_file:
-        with open(env_file, "a") as f:
-            f.write("FOSSIER_TRUST_CHANGED=true\n")
+    if not env_file:
+        return
+    with open(env_file, "a") as f:
+        f.write("FOSSIER_TRUST_CHANGED=true\n")
+        f.write(f"FOSSIER_TRUST_BRANCH={branch}\n")
+        f.write(f"FOSSIER_TRUST_COMMIT_MSG={commit_msg}\n")
+        f.write(f"FOSSIER_TRUST_PR_TITLE={pr_title}\n")
+        f.write(f"FOSSIER_TRUST_PR_BODY={pr_body}\n")
 
 
 def _delete_registry_report(
@@ -211,7 +223,15 @@ class CommentCommandHandler:
     def _handle_vouch(self, pr_author: str, _args: str) -> None:
         """Vouch for the PR author and approve."""
         add_vouch(self.config.repo_root, pr_author)
-        _set_trust_changed()
+        _signal_trust_change(
+            branch=f"fossier/vouch-{pr_author}",
+            commit_msg=f"fossier: vouch for @{pr_author}",
+            pr_title=f"fossier: vouch for @{pr_author}",
+            pr_body=(
+                f"Adds `{pr_author}` to `VOUCHED.td`. "
+                f"Vouched by @{self.commenter} via `/fossier vouch` on #{self.pr_number}."
+            ),
+        )
 
         # Remove fossier labels
         if self.config.review_action.label:
@@ -257,7 +277,16 @@ class CommentCommandHandler:
             return
 
         add_denounce(self.config.repo_root, pr_author, reason)
-        _set_trust_changed()
+        _signal_trust_change(
+            branch=f"fossier/denounce-{pr_author}",
+            commit_msg=f"fossier: denounce @{pr_author}",
+            pr_title=f"fossier: denounce @{pr_author}",
+            pr_body=(
+                f"Adds `{pr_author}` to `VOUCHED.td` as denounced. "
+                f"Rejected by @{self.commenter} via `/fossier reject` on #{self.pr_number}. "
+                f"Reason: {reason}"
+            ),
+        )
 
         # Run scoring to get actual score and signal breakdown for registry
         score_result = score_contributor(
@@ -342,7 +371,16 @@ class CommentCommandHandler:
                 added += 1
 
         if added > 0:
-            _set_trust_changed()
+            run_id = os.environ.get("GITHUB_RUN_ID", "manual")
+            _signal_trust_change(
+                branch=f"fossier/vouch-all-{run_id}",
+                commit_msg=f"fossier: bulk vouch {added} contributor(s)",
+                pr_title=f"fossier: bulk vouch {added} contributor(s)",
+                pr_body=(
+                    f"Adds {added} existing contributor(s) to `VOUCHED.td`. "
+                    f"Triggered by @{self.commenter} via `/fossier vouch-all` on #{self.pr_number}."
+                ),
+            )
 
         already = len(contributors) - added
         self.api.post_comment(

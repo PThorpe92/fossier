@@ -90,14 +90,39 @@ runs:
         fi
         exit 0
 
-    - name: Commit trust changes
+    - name: Open trust update PR
       if: env.FOSSIER_TRUST_CHANGED == 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         git config user.name "fossier[bot]"
         git config user.email "fossier[bot]@users.noreply.github.com"
+
+        # Branch off current HEAD (the default branch on issue_comment events,
+        # which is where /fossier vouch/reject/vouch-all originate).
+        git checkout -B "$FOSSIER_TRUST_BRANCH"
         git add VOUCHED.td .github/VOUCHED.td 2>/dev/null || true
-        git diff --cached --quiet || git commit -m "fossier: update VOUCHED.td [skip ci]"
-        git push
+        if git diff --cached --quiet; then
+          echo "No VOUCHED.td changes to commit"
+          exit 0
+        fi
+        git commit -m "$FOSSIER_TRUST_COMMIT_MSG"
+        git push --force origin "$FOSSIER_TRUST_BRANCH"
+
+        # Open a PR if one isn't already open for this branch.
+        existing=$(gh pr list \
+          --head "$FOSSIER_TRUST_BRANCH" \
+          --base "$DEFAULT_BRANCH" \
+          --state open \
+          --json number -q '.[0].number' || true)
+        if [ -n "$existing" ]; then
+          echo "PR #$existing already open for $FOSSIER_TRUST_BRANCH; branch updated"
+        else
+          gh pr create \
+            --base "$DEFAULT_BRANCH" \
+            --head "$FOSSIER_TRUST_BRANCH" \
+            --title "$FOSSIER_TRUST_PR_TITLE" \
+            --body "$FOSSIER_TRUST_PR_BODY"
+        fi

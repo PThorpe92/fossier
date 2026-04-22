@@ -282,12 +282,12 @@ on:
     types: [created]
 
 permissions:
-  contents: write    # needed for VOUCHED.td commits
+  contents: write    # needed to push the VOUCHED.td branch
   pull-requests: write
   issues: write
 ```
 
-When `/fossier vouch`, `/fossier reject`, or `/fossier vouch-all` modify `VOUCHED.td`, the change is automatically committed back to the repository with `[skip ci]`.
+When `/fossier vouch`, `/fossier reject`, or `/fossier vouch-all` modify `VOUCHED.td`, fossier pushes the change to a `fossier/vouch-<username>` (or `fossier/denounce-<username>`, `fossier/vouch-all-<run-id>`) branch and opens a PR against your default branch. A maintainer merges the PR to persist the trust change — this keeps the workflow compatible with branch protection on the default branch.
 
 ## VOUCHED.td
 

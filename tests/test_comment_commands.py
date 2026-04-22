@@ -341,9 +341,13 @@ class TestHandleVouch:
         content = (tmp_path / "VOUCHED.td").read_text()
         assert "prauthor" in content
 
-        # Check env var was set
+        # Check env vars were set so action.yml can open a PR
         with open(env_file) as f:
-            assert "FOSSIER_TRUST_CHANGED=true" in f.read()
+            env_contents = f.read()
+        assert "FOSSIER_TRUST_CHANGED=true" in env_contents
+        assert "FOSSIER_TRUST_BRANCH=fossier/vouch-prauthor" in env_contents
+        assert "FOSSIER_TRUST_PR_TITLE=" in env_contents
+        assert "FOSSIER_TRUST_PR_BODY=" in env_contents
 
         # Check comment
         api.post_or_update_comment.assert_called_once()
