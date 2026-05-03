@@ -171,12 +171,24 @@ class CommentCommandHandler:
             return 3
 
     def _get_pr_author(self) -> str | None:
+        # The issue_comment webhook payload always carries the PR author at
+        # event["issue"]["user"]["login"]. Prefer it over an API fetch: the
+        # /pulls/{n} endpoint can return a scrubbed or null `user` (private
+        # profiles, deleted/suspended accounts, intermittent GitHub responses),
+        # which previously caused /fossier approve to bail with "Could not
+        # determine PR author" on PRs Fossier had just auto-closed.
+        issue = self.event.get("issue") or {}
+        user = issue.get("user") or {}
+        login = user.get("login")
+        if login:
+            return login.lower()
+
         pr = self.api.get_pr(self.owner, self.repo, self.pr_number)
-        if pr and isinstance(pr, dict):
-            user = pr.get("user", {})
-            login = user.get("login")
-            if login:
-                return login.lower()
+        if isinstance(pr, dict):
+            api_user = pr.get("user") or {}
+            api_login = api_user.get("login")
+            if api_login:
+                return api_login.lower()
         return None
 
     def _reply_error(self, message: str) -> None:

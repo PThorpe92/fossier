@@ -65,17 +65,31 @@ class GithubAction:
     def _handle_pr(self, event: dict) -> int:
         """Handle a pull_request event — the original evaluation flow."""
         pr = event.get("pull_request") or event.get("number")
-        if isinstance(pr, dict):
-            pr_number = pr["number"]
-            username = pr["user"]["login"].lower()
-            event_labels = [
-                label.get("name", "")
-                for label in pr.get("labels", [])
-                if isinstance(label, dict)
-            ]
-        else:
+        if not isinstance(pr, dict):
             logger.error("Could not extract PR info from event payload")
             return 3
+
+        pr_number = pr.get("number")
+        # `user` can be null for ghost/suspended/deleted accounts and on rare
+        # scrubbed payloads. Without an author there's nothing to score, but
+        # the PR is also not the author's fault — bail without taking any
+        # action so we never auto-close a PR we can't evaluate.
+        user = pr.get("user") or {}
+        login = user.get("login")
+        if not pr_number or not login:
+            logger.warning(
+                "PR event missing author info (pr=%r, user=%r) — skipping evaluation",
+                pr_number,
+                user,
+            )
+            return 0
+
+        username = login.lower()
+        event_labels = [
+            label.get("name", "")
+            for label in pr.get("labels", [])
+            if isinstance(label, dict)
+        ]
 
         logger.info("Evaluating PR #%d by @%s", pr_number, username)
 

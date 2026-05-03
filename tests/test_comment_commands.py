@@ -163,6 +163,8 @@ def _make_event(
     commenter: str = "maintainer",
     pr_number: int = 42,
     comment_id: int = 12345,
+    pr_author: str = "prauthor",
+    pr_state: str = "open",
 ) -> dict:
     return {
         "comment": {
@@ -172,6 +174,8 @@ def _make_event(
         },
         "issue": {
             "number": pr_number,
+            "state": pr_state,
+            "user": {"login": pr_author},
             "pull_request": {"url": "https://api.github.com/repos/o/r/pulls/42"},
         },
     }
@@ -181,7 +185,11 @@ def _make_event(
 def handler_setup(tmp_path):
     """Create a CommentCommandHandler with mocked dependencies."""
 
-    def _make(comment_body="/fossier approve", commenter="maintainer"):
+    def _make(
+        comment_body="/fossier approve",
+        commenter="maintainer",
+        pr_state="open",
+    ):
         config = Config(
             repo_owner="owner",
             repo_name="repo",
@@ -194,7 +202,7 @@ def handler_setup(tmp_path):
         api.get_pr.return_value = {
             "number": 42,
             "user": {"login": "prauthor"},
-            "state": "open",
+            "state": pr_state,
         }
         api.remove_label.return_value = True
         api.add_reaction.return_value = {}
@@ -205,7 +213,9 @@ def handler_setup(tmp_path):
         api.reopen_pr.return_value = {}
 
         db = MagicMock()
-        event = _make_event(comment_body=comment_body, commenter=commenter)
+        event = _make_event(
+            comment_body=comment_body, commenter=commenter, pr_state=pr_state
+        )
         handler = CommentCommandHandler(config, api, db, event)
         return handler, config, api, db
 
@@ -255,20 +265,25 @@ class TestHandleApprove:
         body = api.post_or_update_comment.call_args[0][3]
         assert "Approved by Maintainer" in body
 
-    def test_reopens_closed_pr(self, handler_setup):
+    def test_falls_back_to_api_when_event_lacks_author(self, handler_setup):
+        # If a future webhook payload ever omits issue.user, the API fetch
+        # should still recover the author rather than aborting.
         handler, _, api, _ = handler_setup("/fossier approve")
-        api.get_pr.return_value = {
-            "number": 42,
-            "user": {"login": "prauthor"},
-            "state": "closed",
-        }
-        handler.run()
-        api.reopen_pr.assert_called_once_with("owner", "repo", 42)
+        handler.event["issue"]["user"] = None
+        result = handler.run()
+        assert result == 0
 
-    def test_does_not_reopen_open_pr(self, handler_setup):
+    def test_errors_when_author_unrecoverable(self, handler_setup):
+        # Both the event and the API fail to surface a login — only then do
+        # we surface the "Could not determine PR author" error.
         handler, _, api, _ = handler_setup("/fossier approve")
-        handler.run()
-        api.reopen_pr.assert_not_called()
+        handler.event["issue"]["user"] = None
+        api.get_pr.return_value = None
+        result = handler.run()
+        assert result == 3
+        api.post_comment.assert_called_once()
+        body = api.post_comment.call_args[0][3]
+        assert "Could not determine PR author" in body
 
     def test_adds_manual_approval_label(self, handler_setup):
         handler, config, api, _ = handler_setup("/fossier approve")
@@ -366,9 +381,7 @@ class TestHandleVouch:
             "owner", "repo", 42, [config.manual_approval_label]
         )
 
-    def test_deletes_registry_report_when_configured(
-        self, handler_setup, tmp_path
-    ):
+    def test_deletes_registry_report_when_configured(self, handler_setup, tmp_path):
         handler, config, api, _ = handler_setup("/fossier vouch")
         config.registry_url = "https://registry.example.com"
         config.registry_api_key = "test-key"
@@ -683,3 +696,45 @@ class TestActionRouting:
             result = action.run()
 
         assert result in (0, 1, 2)
+
+    def test_pr_event_with_null_user_skips_without_action(self, tmp_path):
+        # Ghost / suspended / deleted accounts surface as `user: null` in the
+        # webhook payload. Fossier must not crash and must not auto-close
+        # such PRs — they aren't the author's fault and there's nothing to
+        # score. Returning 0 with no API calls ensures the PR is left alone.
+        from fossier.action import GithubAction
+
+        event = {
+            "pull_request": {
+                "number": 42,
+                "user": None,
+            }
+        }
+        event_path = tmp_path / "event.json"
+        event_path.write_text(json.dumps(event))
+
+        config = Config(
+            repo_owner="owner",
+            repo_name="repo",
+            repo_root=tmp_path,
+            db_path=str(tmp_path / "test.db"),
+            github_token="test-token",
+        )
+        api = MagicMock()
+
+        env = {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "pull_request",
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("fossier.action.load_config", return_value=config),
+            patch("fossier.action.GitHubAPI", return_value=api),
+        ):
+            action = GithubAction()
+            result = action.run()
+
+        assert result == 0
+        api.close_pr.assert_not_called()
+        api.add_labels.assert_not_called()
