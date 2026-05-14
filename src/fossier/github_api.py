@@ -298,10 +298,17 @@ class GitHubAPI:
         return -1
 
     def search_prior_interaction(self, owner: str, repo: str, username: str) -> int:
-        """Count prior issues/PRs by user on this repo, excluding items from last 24h."""
+        """Count prior issues/PRs by user on this repo, excluding items from last 24h.
+
+        Excludes PRs/issues carrying Fossier's deny label so PRs we auto-closed
+        ourselves don't count as legitimate prior interaction on subsequent runs.
+        """
         from datetime import datetime, timedelta, timezone
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
         query = f"repo:{owner}/{repo} author:{username} created:<{cutoff}"
+        exclude_label = self.config.deny_action.label
+        if exclude_label:
+            query += f' -label:"{exclude_label}"'
         data = self.get(
             "/search/issues",
             params={"q": query, "per_page": "1"},
@@ -313,7 +320,9 @@ class GitHubAPI:
         # Fallback to gh CLI
         if self._gh_available:
             logger.debug("Falling back to `gh search` for prior interaction")
-            count = gh_cli.search_prior_interaction(owner, repo, username)
+            count = gh_cli.search_prior_interaction(
+                owner, repo, username, exclude_label=exclude_label
+            )
             # Legacy fallback returns bool; convert to int
             return 1 if count else 0
         return 0

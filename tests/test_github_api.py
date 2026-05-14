@@ -183,6 +183,23 @@ class TestHelperMethods:
         )
         assert api.search_prior_interaction("o", "r", "alice") == 0
 
+    def test_search_prior_interaction_excludes_deny_label(self, api):
+        # PRs Fossier auto-closes carry the deny label; they must not count as
+        # legitimate prior interaction on the next run by the same user.
+        api.config.deny_action.label = "fossier:spam-likely"
+        api._client.get.return_value = _mock_response(json_data={"total_count": 0})
+        api.search_prior_interaction("o", "r", "alice")
+        call_kwargs = api._client.get.call_args.kwargs
+        query = call_kwargs["params"]["q"]
+        assert '-label:"fossier:spam-likely"' in query
+
+    def test_search_prior_interaction_no_exclude_when_label_empty(self, api):
+        api.config.deny_action.label = ""
+        api._client.get.return_value = _mock_response(json_data={"total_count": 0})
+        api.search_prior_interaction("o", "r", "alice")
+        query = api._client.get.call_args.kwargs["params"]["q"]
+        assert "-label:" not in query
+
     def test_post_comment(self, api):
         api._client.post.return_value = _mock_response(
             status=201, json_data={"id": 1}

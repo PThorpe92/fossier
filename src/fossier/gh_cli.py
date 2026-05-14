@@ -143,8 +143,20 @@ def search_merged_prs(username: str) -> int:
         return -1
 
 
-def search_prior_interaction(owner: str, repo: str, username: str) -> bool:
-    """Check if user has prior issues/PRs/comments on this repo using `gh`."""
+def search_prior_interaction(
+    owner: str, repo: str, username: str, exclude_label: str = ""
+) -> bool:
+    """Check if user has prior issues/PRs/comments on this repo using `gh`.
+
+    When `exclude_label` is set, items carrying that label (i.e. PRs Fossier
+    has previously auto-closed) are excluded from the result.
+    """
+    extra_query: list[str] = []
+    if exclude_label:
+        # GitHub search exclude qualifier; passed as a positional query term
+        # after `--` so gh does not parse it as a flag.
+        extra_query = ["--", f'-label:"{exclude_label}"']
+
     # Check for PRs by the user
     try:
         result = subprocess.run(
@@ -160,6 +172,7 @@ def search_prior_interaction(owner: str, repo: str, username: str) -> bool:
                 "number",
                 "--limit",
                 "1",
+                *extra_query,
             ],
             capture_output=True,
             text=True,
@@ -187,6 +200,7 @@ def search_prior_interaction(owner: str, repo: str, username: str) -> bool:
                 "number",
                 "--limit",
                 "1",
+                *extra_query,
             ],
             capture_output=True,
             text=True,
