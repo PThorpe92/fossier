@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from pathlib import Path
 
 from fossier.config import Config
 from fossier.db import Database
@@ -53,13 +54,21 @@ def is_authorized(api: GitHubAPI, owner: str, repo: str, username: str) -> bool:
 
 
 def _signal_trust_change(
-    branch: str, commit_msg: str, pr_title: str, pr_body: str
+    branch: str,
+    commit_msg: str,
+    pr_title: str,
+    pr_body: str,
+    trust_file: Path | None = None,
 ) -> None:
     """Signal the workflow to open a PR with VOUCHED.td changes.
 
     Writes FOSSIER_TRUST_* variables to $GITHUB_ENV; the action.yml "Open
     trust update PR" step reads them to create a branch, commit, push, and
     open a PR against the default branch.
+
+    `trust_file` is the absolute path to the VOUCHED.td that was just
+    modified. The action step uses this to stage exactly the right file
+    instead of guessing between two possible locations.
     """
     env_file = os.environ.get("GITHUB_ENV")
     if not env_file:
@@ -70,6 +79,8 @@ def _signal_trust_change(
         f.write(f"FOSSIER_TRUST_COMMIT_MSG={commit_msg}\n")
         f.write(f"FOSSIER_TRUST_PR_TITLE={pr_title}\n")
         f.write(f"FOSSIER_TRUST_PR_BODY={pr_body}\n")
+        if trust_file is not None:
+            f.write(f"FOSSIER_TRUST_FILE={trust_file}\n")
 
 
 def _delete_registry_report(
@@ -234,7 +245,7 @@ class CommentCommandHandler:
 
     def _handle_vouch(self, pr_author: str, _args: str) -> None:
         """Vouch for the PR author and approve."""
-        add_vouch(self.config.repo_root, pr_author)
+        trust_file = add_vouch(self.config.repo_root, pr_author)
         _signal_trust_change(
             branch=f"fossier/vouch-{pr_author}",
             commit_msg=f"fossier: vouch for @{pr_author}",
@@ -243,6 +254,7 @@ class CommentCommandHandler:
                 f"Adds `{pr_author}` to `VOUCHED.td`. "
                 f"Vouched by @{self.commenter} via `/fossier vouch` on #{self.pr_number}."
             ),
+            trust_file=trust_file,
         )
 
         # Remove fossier labels
@@ -288,7 +300,7 @@ class CommentCommandHandler:
             # Undo the eyes reaction by adding -1, but don't double-react
             return
 
-        add_denounce(self.config.repo_root, pr_author, reason)
+        trust_file = add_denounce(self.config.repo_root, pr_author, reason)
         _signal_trust_change(
             branch=f"fossier/denounce-{pr_author}",
             commit_msg=f"fossier: denounce @{pr_author}",
@@ -298,6 +310,7 @@ class CommentCommandHandler:
                 f"Rejected by @{self.commenter} via `/fossier reject` on #{self.pr_number}. "
                 f"Reason: {reason}"
             ),
+            trust_file=trust_file,
         )
 
         # Run scoring to get actual score and signal breakdown for registry
@@ -377,9 +390,10 @@ class CommentCommandHandler:
 
         existing = parse_vouched(self.config.repo_root)
         added = 0
+        trust_file: Path | None = None
         for username in contributors:
             if username not in existing.vouched:
-                add_vouch(self.config.repo_root, username)
+                trust_file = add_vouch(self.config.repo_root, username)
                 added += 1
 
         if added > 0:
@@ -392,6 +406,7 @@ class CommentCommandHandler:
                     f"Adds {added} existing contributor(s) to `VOUCHED.td`. "
                     f"Triggered by @{self.commenter} via `/fossier vouch-all` on #{self.pr_number}."
                 ),
+                trust_file=trust_file,
             )
 
         already = len(contributors) - added

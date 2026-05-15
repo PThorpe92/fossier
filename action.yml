@@ -103,9 +103,43 @@ runs:
         # Branch off current HEAD (the default branch on issue_comment events,
         # which is where /fossier vouch/reject/vouch-all originate).
         git checkout -B "$FOSSIER_TRUST_BRANCH"
-        git add VOUCHED.td .github/VOUCHED.td 2>/dev/null || true
+
+        echo "--- working tree state before staging ---"
+        echo "FOSSIER_TRUST_FILE=$FOSSIER_TRUST_FILE"
+        git status --short
+
+        # Stage VOUCHED.td. Prefer the absolute path Python recorded in
+        # FOSSIER_TRUST_FILE; fall back to scanning both supported locations
+        # for older callers. Use -f so an unexpected .gitignore entry can't
+        # silently drop the staging.
+        staged=0
+        if [ -n "$FOSSIER_TRUST_FILE" ] && [ -f "$FOSSIER_TRUST_FILE" ]; then
+          git add -f -- "$FOSSIER_TRUST_FILE"
+          staged=1
+        else
+          for candidate in VOUCHED.td .github/VOUCHED.td; do
+            if [ -f "$candidate" ]; then
+              git add -f -- "$candidate"
+              staged=1
+            fi
+          done
+        fi
+
+        if [ "$staged" = "0" ]; then
+          echo "::error::Fossier wrote no VOUCHED.td file we can locate."
+          echo "FOSSIER_TRUST_FILE=$FOSSIER_TRUST_FILE"
+          echo "--- git status ---"
+          git status --short
+          exit 1
+        fi
+
         if git diff --cached --quiet; then
-          echo "No VOUCHED.td changes to commit"
+          echo "::warning::VOUCHED.td was located but contained no changes to commit."
+          echo "FOSSIER_TRUST_FILE=$FOSSIER_TRUST_FILE"
+          echo "--- git status ---"
+          git status --short
+          echo "--- working tree diff ---"
+          git diff -- "${FOSSIER_TRUST_FILE:-VOUCHED.td}" || true
           exit 0
         fi
         git commit -m "$FOSSIER_TRUST_COMMIT_MSG"

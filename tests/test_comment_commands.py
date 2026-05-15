@@ -363,6 +363,10 @@ class TestHandleVouch:
         assert "FOSSIER_TRUST_BRANCH=fossier/vouch-prauthor" in env_contents
         assert "FOSSIER_TRUST_PR_TITLE=" in env_contents
         assert "FOSSIER_TRUST_PR_BODY=" in env_contents
+        # The action step needs the exact file path Python wrote to so it can
+        # stage the right file regardless of where VOUCHED.td lives.
+        assert "FOSSIER_TRUST_FILE=" in env_contents
+        assert str(tmp_path / "VOUCHED.td") in env_contents
 
         # Check comment
         api.post_or_update_comment.assert_called_once()
