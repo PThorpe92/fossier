@@ -69,6 +69,20 @@ class GithubAction:
             logger.error("Could not extract PR info from event payload")
             return 3
 
+        # Only evaluate on the initial PR open (or reopen). Subsequent events
+        # like `synchronize` (new commits pushed) re-fire the workflow, but
+        # re-running the pipeline would post duplicate review comments and
+        # could re-close PRs that maintainers are still triaging. After the
+        # first evaluation, all further action is gated on /fossier slash
+        # commands (handled via issue_comment events).
+        action = event.get("action")
+        if action and action not in ("opened", "reopened"):
+            logger.info(
+                "PR event action=%r — skipping re-evaluation (use /fossier check to re-run)",
+                action,
+            )
+            return 0
+
         pr_number = pr.get("number")
         # `user` can be null for ghost/suspended/deleted accounts and on rare
         # scrubbed payloads. Without an author there's nothing to score, but

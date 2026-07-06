@@ -9,6 +9,17 @@ inputs:
     description: "GitHub token with PR write access"
     required: true
     default: ${{ github.token }}
+  pr-token:
+    description: >
+      Token used to OPEN the trust-update PR for /fossier vouch|reject|vouch-all.
+      Defaults to github-token. If your org/repo disables "Allow GitHub Actions
+      to create and approve pull requests", the default GITHUB_TOKEN cannot open
+      PRs — set this to a Personal Access Token or GitHub App token with
+      `pull-requests: write`. If left unset and PR creation is blocked, fossier
+      pushes the branch and comments a one-click "compare & create PR" link
+      instead of failing.
+    required: false
+    default: ""
   config-path:
     description: "Path to fossier.toml (default: auto-detect)"
     required: false
@@ -95,7 +106,11 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_PR_TOKEN: ${{ inputs.pr-token }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        # The PR that carried the /fossier command (issue_comment events only).
+        # Used to post a fallback comment if we can't open the trust PR.
+        SOURCE_PR: ${{ github.event.issue.number }}
       run: |
         git config user.name "fossier[bot]"
         git config user.email "fossier[bot]@users.noreply.github.com"
@@ -145,18 +160,53 @@ runs:
         git commit -m "$FOSSIER_TRUST_COMMIT_MSG"
         git push --force origin "$FOSSIER_TRUST_BRANCH"
 
+        # Token used to open the PR. Defaults to github-token; orgs that
+        # disable "Allow GitHub Actions to create and approve pull requests"
+        # can pass a PAT/App token via the pr-token input to open PRs anyway.
+        PR_TOKEN="${INPUT_PR_TOKEN:-$GITHUB_TOKEN}"
+
+        # One-click "compare & create PR" URL — the escape hatch when the API
+        # can't open the PR for us. Pre-fills the PR form (?expand=1).
+        COMPARE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$FOSSIER_TRUST_BRANCH?expand=1"
+
         # Open a PR if one isn't already open for this branch.
-        existing=$(gh pr list \
+        existing=$(GH_TOKEN="$PR_TOKEN" gh pr list \
           --head "$FOSSIER_TRUST_BRANCH" \
           --base "$DEFAULT_BRANCH" \
           --state open \
           --json number -q '.[0].number' || true)
         if [ -n "$existing" ]; then
           echo "PR #$existing already open for $FOSSIER_TRUST_BRANCH; branch updated"
-        else
-          gh pr create \
-            --base "$DEFAULT_BRANCH" \
-            --head "$FOSSIER_TRUST_BRANCH" \
-            --title "$FOSSIER_TRUST_PR_TITLE" \
-            --body "$FOSSIER_TRUST_PR_BODY"
+          exit 0
         fi
+
+        if GH_TOKEN="$PR_TOKEN" gh pr create \
+          --base "$DEFAULT_BRANCH" \
+          --head "$FOSSIER_TRUST_BRANCH" \
+          --title "$FOSSIER_TRUST_PR_TITLE" \
+          --body "$FOSSIER_TRUST_PR_BODY"; then
+          echo "Opened trust-update PR for $FOSSIER_TRUST_BRANCH"
+          exit 0
+        fi
+
+        # PR creation failed. The overwhelmingly common cause is the repo/org
+        # setting "Allow GitHub Actions to create and approve pull requests"
+        # being disabled — GITHUB_TOKEN then can't open PRs. The branch is
+        # already pushed, so don't fail the run: surface a one-click compare
+        # link and tell maintainers how to make it "just work" next time.
+        echo "::warning::Could not open the trust-update PR automatically. Branch '$FOSSIER_TRUST_BRANCH' was pushed. Open it here: $COMPARE_URL"
+
+        if [ -n "$SOURCE_PR" ]; then
+          COMMENT_BODY=$(printf '%s\n' \
+            "**Fossier:** the trust update was pushed to \`$FOSSIER_TRUST_BRANCH\`, but I couldn't open the pull request automatically." \
+            "" \
+            "👉 **[Compare & create the pull request]($COMPARE_URL)**" \
+            "" \
+            "This usually means GitHub Actions isn't permitted to create pull requests in this repo. To make \`/fossier vouch\` open the PR automatically, a maintainer can either:" \
+            "" \
+            "- Enable **Settings → Actions → General → Workflow permissions → _Allow GitHub Actions to create and approve pull requests_**, then re-run \`/fossier vouch\`; or" \
+            "- Pass a \`pr-token\` action input (a PAT or GitHub App token with \`pull-requests: write\`).")
+          GH_TOKEN="$PR_TOKEN" gh pr comment "$SOURCE_PR" --body "$COMMENT_BODY" \
+            || echo "::warning::Also could not post the fallback comment on PR #$SOURCE_PR."
+        fi
+        exit 0

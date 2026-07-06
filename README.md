@@ -289,6 +289,26 @@ permissions:
 
 When `/fossier vouch`, `/fossier reject`, or `/fossier vouch-all` modify `VOUCHED.td`, fossier pushes the change to a `fossier/vouch-<username>` (or `fossier/denounce-<username>`, `fossier/vouch-all-<run-id>`) branch and opens a PR against your default branch. A maintainer merges the PR to persist the trust change — this keeps the workflow compatible with branch protection on the default branch.
 
+> **Required: allow Actions to open PRs.** GitHub blocks the default `GITHUB_TOKEN`
+> from creating pull requests unless you opt in. Enable
+> **Settings → Actions → General → Workflow permissions →
+> _Allow GitHub Actions to create and approve pull requests_** (this may be an
+> org-level setting). Without it, fossier still pushes the branch but **cannot
+> open the PR** — you'll see `GitHub Actions is not permitted to create or
+> approve pull requests` in the logs. In that case fossier comments a one-click
+> "compare & create PR" link on the triggering PR instead of failing silently.
+>
+> If your org can't enable that setting, pass a token that can open PRs via the
+> `pr-token` input (a [fine-grained PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+> or GitHub App token with `pull-requests: write`):
+>
+> ```yaml
+>       - uses: PThorpe92/fossier@main
+>         with:
+>           github-token: ${{ secrets.GITHUB_TOKEN }}
+>           pr-token: ${{ secrets.FOSSIER_PR_TOKEN }}   # optional; only if Actions can't open PRs
+> ```
+
 ## VOUCHED.td
 
 A simple trust file you commit to your repo (root or `.github/`):
